@@ -1,0 +1,64 @@
+[
+  {
+    "name": "ミライチップ",
+    "tags": [
+      "AI・半導体",
+      "IT"
+    ],
+    "price": 2500,
+    "desc": "AIの波に乗る成長企業",
+    "yieldPct": 6,
+    "id": "stock-1"
+  },
+  {
+    "name": "ピクセルクエスト",
+    "tags": [
+      "ゲーム",
+      "IT"
+    ],
+    "price": 1600,
+    "desc": "ヒット作を狙うゲーム会社",
+    "yieldPct": 7,
+    "id": "stock-2"
+  },
+  {
+    "name": "ひだまり銀行",
+    "tags": [
+      "銀行"
+    ],
+    "price": 1000,
+    "desc": "毎月の配当を重視するなら",
+    "yieldPct": 10,
+    "id": "stock-3"
+  },
+  {
+    "name": "そらクラウド",
+    "tags": [
+      "IT"
+    ],
+    "price": 1800,
+    "desc": "企業のデジタル化を支える",
+    "yieldPct": 8,
+    "id": "stock-4"
+  },
+  {
+    "name": "ドラゴンバイオ",
+    "tags": [
+      "医療"
+    ],
+    "price": 1200,
+    "desc": "新薬のニュースで大きく動く",
+    "yieldPct": 5,
+    "id": "stock-5"
+  },
+  {
+    "name": "まちのマート",
+    "tags": [
+      "生活"
+    ],
+    "price": 800,
+    "desc": "生活に身近な高配当企業",
+    "yieldPct": 9,
+    "id": "stock-6"
+  }
+]

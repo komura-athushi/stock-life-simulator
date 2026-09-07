@@ -1,0 +1,65 @@
+{
+  "employee": {
+    "name": "会社員",
+    "income": 300000,
+    "count": 2,
+    "bonus": 500000,
+    "salarySteps": [
+      300000,
+      350000,
+      450000,
+      600000
+    ],
+    "bonuses": {
+      "4": 500000,
+      "7": 800000
+    },
+    "desc": "月収は3か月ごとに30万・35万・45万・60万円へ昇給。4月50万円・7月80万円のボーナス。",
+    "detail": "毎月4件の予定から2件を調査",
+    "dividendMultiplier": 1,
+    "boostPoints": 0,
+    "incomeLabel": "30万 → 35万 → 45万 → 60万円（3か月ごと）",
+    "feature": "月収は3か月ごとに30万・35万・45万・60万円へ昇給。4月50万円・7月80万円のボーナス。"
+  },
+  "trader": {
+    "name": "トレーダー",
+    "income": 0,
+    "count": 3,
+    "bonus": 0,
+    "desc": "毎月の収入は0円。情報網を使い、通常より1件多く予定を調査できる。",
+    "detail": "毎月4件の予定から3件を調査",
+    "dividendMultiplier": 1,
+    "boostPoints": 0,
+    "incomeLabel": "0円",
+    "feature": "毎月の収入は0円。情報網を使い、通常より1件多く予定を調査できる。"
+  },
+  "influencer": {
+    "name": "インフルエンサー",
+    "income": 200000,
+    "count": 2,
+    "bonus": 0,
+    "desc": "月収5万〜35万円。毎月1件の予定を選んで実現確率に10ポイント加算。",
+    "detail": "毎月4件の予定から2件を調査",
+    "dividendMultiplier": 1,
+    "boostPoints": 10,
+    "randomIncome": {
+      "min": 50000,
+      "max": 350000,
+      "step": 10000
+    },
+    "incomeLabel": "5万〜35万円",
+    "feature": "月収5万〜35万円。毎月1件の予定を選んで実現確率に10ポイント加算。"
+  },
+  "wealthy": {
+    "name": "資産家",
+    "income": 0,
+    "count": 2,
+    "bonus": 0,
+    "desc": "月収は0円。すべての保有株から受け取る配当が2倍になる。",
+    "detail": "予定を2件調査 / 配当2倍 / 初期資金100万円",
+    "dividendMultiplier": 2,
+    "boostPoints": 0,
+    "incomeLabel": "0円",
+    "feature": "月収は0円。すべての保有株から受け取る配当が2倍になる。"
+  }
+}

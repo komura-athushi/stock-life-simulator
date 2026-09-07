@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "initialCash": 1000000,
+  "ranks": [
+    {
+      "min": 50000000,
+      "label": "GOD"
+    },
+    {
+      "min": 20000000,
+      "label": "S"
+    },
+    {
+      "min": 10000000,
+      "label": "A"
+    },
+    {
+      "min": 5000000,
+      "label": "B"
+    },
+    {
+      "min": 3000000,
+      "label": "C"
+    },
+    {
+      "min": 0,
+      "label": "D"
+    }
+  ]
+}
