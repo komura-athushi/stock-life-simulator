@@ -1,30 +1,35 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "initialCash": 1000000,
-  "ranks": [
+  "months": 24,
+  "actionsPerMonth": 2,
+  "goals": [
     {
-      "min": 50000000,
-      "label": "GOD"
+      "month": 6,
+      "amount": 2000000,
+      "title": "投資家への第一歩"
     },
     {
-      "min": 20000000,
-      "label": "S"
+      "month": 12,
+      "amount": 5000000,
+      "title": "自分の勝ち筋"
     },
     {
-      "min": 10000000,
-      "label": "A"
+      "month": 18,
+      "amount": 12000000,
+      "title": "資産を加速させる"
     },
     {
-      "min": 5000000,
-      "label": "B"
-    },
-    {
-      "min": 3000000,
-      "label": "C"
-    },
-    {
-      "min": 0,
-      "label": "D"
+      "month": 24,
+      "amount": 30000000,
+      "title": "夢の職業へ"
     }
+  ],
+  "planSlots": 4,
+  "initialResearchPoints": 3,
+  "researchCosts": [
+    1,
+    2,
+    3
   ]
 }
