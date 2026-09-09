@@ -1,89 +1,199 @@
 'use strict';
-function initializeGame(gameData){
-
-'use strict';
-const {companies,events,jobs,major,config}=gameData;
-const KEY='kabugurashi-cloud-v1:'+location.pathname;
-const DATA_SIGNATURE=JSON.stringify(gameData);
-const $=id=>document.getElementById(id), yen=n=>Math.round(n).toLocaleString('ja-JP')+'円', pick=a=>a[Math.floor(Math.random()*a.length)], tags=a=>a.map(t=>`<span class="tag" data-tag="${escapeText(t)}">${escapeText(t)}</span>`).join('');
-let s,noticeTimer;
-function drawChoices(){const pool=events.map(e=>e.id);for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}return pool.slice(0,4)}
-function planMonth(){s.choices=drawChoices();s.selected=[];s.boostedEventId=null;if(s.job==='employee'&&[4,7,10].includes(s.month))record('昇給！ 今月から月収 '+yen(salaryFor(s.job,s.month)));s.clue=s.choices[Math.floor(Math.random()*4)]}
-
-function fresh(persist=true){scenes=[];$('replay').hidden=true;s={version:7,dataSignature:DATA_SIGNATURE,boostedEventId:null,job:null,month:1,cash:config.initialCash,prices:companies.map(c=>c.price),prev:companies.map(c=>c.price),qty:companies.map(()=>0),cost:companies.map(()=>0),realized:0,dividends:0,choices:[],selected:[],clue:null,history:[config.initialCash],priceHistory:[companies.map(c=>c.price)],incomeHistory:[],monthlyNews:[],log:[],done:false};render();if(persist)save(false)}
-function start(job){if(s.job||!Object.hasOwn(jobs,job))return;s.job=job;planMonth();record(jobs[job].name+'として'+yen(config.initialCash)+'でスタート');commit()}
-function baselineAt(month){return config.initialCash+s.incomeHistory.slice(0,month).reduce((a,b)=>a+b,0)}
-function salaryFor(job,month){return jobs[job].salarySteps?jobs[job].salarySteps[Math.floor((month-1)/3)]:jobs[job].income}
-function bonusFor(job,month){return jobs[job].bonuses?.[month]||0}
-function probability(e){return s.job==='influencer'&&s.boostedEventId===e.id?Math.min(95,e.prob+jobs[s.job].boostPoints):e.prob}
-function boost(id){if(s.job!=='influencer'||s.done||s.boostedEventId!==null||!s.choices.includes(id))return;s.boostedEventId=id;record('予定'+(s.choices.indexOf(id)+1)+'を強化（発生確率+'+jobs.influencer.boostPoints+'ポイント）');commit();toast('今月の強化を確定しました')}
-function boostHTML(id){if(s.job!=='influencer')return '';return s.boostedEventId===id?'<p class="up">📣 強化済み · 発生確率+'+jobs.influencer.boostPoints+'ポイント</p>':'<button class="small" data-boost="'+id+'" '+(s.boostedEventId!==null?'disabled':'')+'>この予定を強化 +'+jobs.influencer.boostPoints+'ポイント</button>'}
-function likelihood(e){const p=probability(e);return p<=55?'小':p<=75?'中':'大'}
-
-function applyEvent(e){affected(e).forEach(i=>s.prices[i]=Math.max(1,Math.round(s.prices[i]*(1+e.rate/100))))}
-function enterMonth(pending){
- s.prev=[...s.prices];s.monthlyNews=[];pending.forEach(id=>resolve(events[id],'予定イベント'));
- if(!major.months.includes(s.month))return;
- const mode=pick(major.modes),pool=companies.map((_,i)=>i);
- const targets=mode.type==='all'?[pool]:Array.from({length:mode.count},()=>[pool.splice(Math.floor(Math.random()*pool.length),1)[0]]);
- for(const indices of targets){const result=mode.type==='all'?mode:pick(mode.outcomes);const e={title:(mode.type==='all'?'':companies[indices[0]].name)+result.title,tags:[],targets:indices,rate:result.rate,explanation:result.explanation,kind:'大規模イベント・確定'};applyEvent(e);s.monthlyNews.push(e);record(e.title+'：'+(e.rate>0?'+':'')+e.rate+'%')}
-}
-
-function dividendMultiplier(){return jobs[s.job]?.dividendMultiplier||1}
-function dividendFor(i){return Math.floor(s.qty[i]*s.prices[i]*companies[i].yieldPct/100)*dividendMultiplier()}
-function monthlyDividend(){return companies.reduce((sum,_,i)=>sum+dividendFor(i),0)}
-function rankFor(total){return config.ranks.find(r=>total>=r.min).label}
-function assets(){return s.cash+s.prices.reduce((n,p,i)=>n+p*s.qty[i],0)}
-function affected(e){return e.targets||companies.map((c,i)=>c.tags.some(t=>e.tags.includes(t))?i:-1).filter(i=>i>=0)}
-
-function record(t){s.log.unshift(`${s.month}月 · ${t}`);s.log=s.log.slice(0,240)}
-function toast(t){$('notice').textContent=t;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').textContent='',4500)}
-function save(show=true){try{localStorage.setItem(KEY,JSON.stringify(s));if(show)toast('保存しました');return true}catch{toast('このブラウザでは保存できません。保存を許可してご利用ください。');return false}}
-function valid(v){return v&&v.dataSignature===DATA_SIGNATURE&&v.version===7&&(v.boostedEventId===null||(v.job==='influencer'&&Number.isInteger(v.boostedEventId)&&Array.isArray(v.choices)&&v.choices.includes(v.boostedEventId)))&&(v.job===null||Object.hasOwn(jobs,v.job))&&Number.isInteger(v.month)&&v.month>=1&&v.month<=12&&typeof v.done==='boolean'&&(!v.done||v.month===12)&&['cash','realized','dividends'].every(k=>Number.isFinite(v[k]))&&v.cash>=0&&['prices','prev','qty','cost'].every(k=>Array.isArray(v[k])&&v[k].length===companies.length&&v[k].every(n=>Number.isFinite(n)&&n>=0))&&v.prices.every(n=>n>=1)&&v.qty.every(n=>Number.isSafeInteger(n)&&n%100===0)&&Array.isArray(v.choices)&&v.choices.length===(v.job?4:0)&&new Set(v.choices).size===v.choices.length&&v.choices.every(n=>Number.isInteger(n)&&n>=0&&n<events.length)&&Array.isArray(v.selected)&&v.selected.length<=(v.job?jobs[v.job].count:0)&&new Set(v.selected).size===v.selected.length&&v.selected.every(id=>v.choices.includes(id))&&(v.job?v.choices.includes(v.clue):v.clue===null)&&Array.isArray(v.history)&&v.history.length===(v.done?13:v.month)&&v.history.every(n=>Number.isFinite(n)&&n>=0)&&Array.isArray(v.incomeHistory)&&v.incomeHistory.length===v.history.length-1&&v.incomeHistory.every(n=>Number.isFinite(n)&&n>=0)&&Array.isArray(v.monthlyNews)&&v.monthlyNews.length<=104&&v.monthlyNews.every(e=>e&&(!e.targets||(Array.isArray(e.targets)&&e.targets.every(i=>Number.isInteger(i)&&i>=0&&i<companies.length)))&&typeof e.title==='string'&&typeof e.kind==='string'&&Number.isFinite(e.rate)&&Array.isArray(e.tags)&&e.tags.every(t=>companies.some(c=>c.tags.includes(t))))&&Array.isArray(v.priceHistory)&&v.priceHistory.length===v.history.length&&v.priceHistory.every(row=>row===null||(Array.isArray(row)&&row.length===companies.length&&row.every(n=>Number.isFinite(n)&&n>=1)))&&Array.isArray(v.log)&&v.log.length<=240&&v.log.every(t=>typeof t==='string')}
-function load(show=true){try{const raw=localStorage.getItem(KEY);if(!raw){if(show)toast('保存データがありません');return false}if(raw.length>2000000)throw Error();const v=JSON.parse(raw);if(v&&v.version===6&&v.priceHistory===undefined&&Array.isArray(v.history)&&Array.isArray(v.prices)){v.priceHistory=Array.from({length:v.history.length},()=>null);v.priceHistory[0]=companies.map(c=>c.price);v.priceHistory[v.priceHistory.length-1]=[...v.prices]}if(v&&v.version===6){v.version=7;v.boostedEventId=null}if(!valid(v))throw Error();s=v;scenes=[];$('replay').hidden=true;render();if(show)toast('保存した続きから再開しました');return true}catch{toast('保存データが破損しているか、ゲームデータが更新されています。新しく始めると保存内容が置き換わります。');return false}}
-function commit(){render();save(false)}
-function resolve(e,source){const ok=Math.random()*100<probability(e);if(ok)applyEvent(e);const boosted=s.job==='influencer'&&s.boostedEventId===e.id;const kind=source+'・'+(ok?'実現':'不発')+(boosted?'・📣 強化済み':'');const explanation=ok?e.success:e.failure;record(kind+'「'+e.title+'」：'+explanation+' '+(ok?(e.rate>0?'+':'')+e.rate+'%':'このイベントによる株価変動なし'));s.monthlyNews.push({...e,kind,explanation,rate:ok?e.rate:0});return ok}
-
-function choose(id){if(!s.job||s.done||s.selected.length>=jobs[s.job].count||s.selected.includes(id)||!s.choices.includes(id))return;s.selected.push(id);commit();toast('情報を入手しました。予定や実現確率は調査によって変わりません。')}
-
-
-
-function trade(i,buy,max=false){if(!s.job||s.done)return;const p=s.prices[i];let n=Number($('qty'+i).value);if(max){n=buy?Math.floor(s.cash/(p*100))*100:s.qty[i];if(buy)while(n>0&&n*p>s.cash)n-=100}if(!Number.isSafeInteger(n)||n<100||n%100!==0){toast('株数は100株単位で入力してください（100、200…）');return}const value=p*n;if(buy){if(value>s.cash){toast('現金が足りません。株数を減らしてください');return}s.cash-=value;s.qty[i]+=n;s.cost[i]+=value}else{if(n>s.qty[i]){toast('保有株数を超えて売ることはできません');return}const basis=s.cost[i]*n/s.qty[i];s.realized+=value-basis;s.cost[i]-=basis;s.qty[i]-=n;if(!s.qty[i])s.cost[i]=0;s.cash+=value}record(`${companies[i].name}を${n}株${buy?'購入':'売却'}：${yen(value)}`);commit();tone(buy?'up':'down');toast((buy?'購入完了！ ':'売却完了！ ')+companies[i].name+' '+n+'株');const card=$('qty'+i).closest('.stock');if(card)card.classList.add('trade-pop')}
-function next(){if(!s.job||s.done)return;const pending=[...s.choices];enterMonth(pending);const div=monthlyDividend();s.cash+=div;s.dividends+=div;record('毎月配当：+'+yen(div));const job=jobs[s.job],bonus=bonusFor(s.job,s.month),income=job.randomIncome?job.randomIncome.min+Math.floor(Math.random()*((job.randomIncome.max-job.randomIncome.min)/job.randomIncome.step+1))*job.randomIncome.step:salaryFor(s.job,s.month);s.cash+=income+bonus;s.incomeHistory.push(income+bonus);record(job.name+'の収入：+'+yen(income)+(bonus?' / ボーナス +'+yen(bonus):''));s.history.push(assets());s.priceHistory.push([...s.prices]);if(s.month===12){s.done=true;record('12か月完走！ 最終資産 '+yen(assets()))}else{s.month++;planMonth()}commit();window.scrollTo({top:0,behavior:'smooth'})}
-
-function eventHTML(e){return '<article class="event"><div>'+tags(e.tags)+'</div><h3>'+escapeText(e.title)+'</h3><p>'+escapeText(e.text)+'</p><div class="row"><span class="effect '+(e.rate<0?'down':'up')+'">'+(e.rate>0?'↗ 上昇':'↘ 下落')+'</span><span class="prob">実現の見込み：'+likelihood(e)+'</span></div><small>影響する株：'+affected(e).map(i=>escapeText(companies[i].name)).join('、')+'</small><small>調査済み · 発生を決める操作ではありません</small>'+boostHTML(e.id)+'</article>'}
-
-function render(){
-$('career').hidden=!!s.job;$('play').hidden=!s.job;$('save').disabled=!s.job;
-if(!s.job){$('career').innerHTML='<div class="eyebrow">CHOOSE YOUR CAREER</div><h2>どんな投資家として暮らす？</h2><p class="muted">共通：初期資金'+yen(config.initialCash)+' / 100株単位 / 毎月配当 / 12か月</p><div class="stock-grid">'+Object.entries(jobs).map(([id,j])=>`<article class="event"><h2>${escapeText(j.name)}</h2><dl class="career-facts"><dt>月収</dt><dd>${escapeText(j.incomeLabel)}</dd><dt>調査</dt><dd>毎月 ${j.count}件</dd><dt>特徴</dt><dd>${escapeText(j.feature)}</dd></dl><button class="primary" data-job="${id}">${escapeText(j.name)}で始める</button></article>`).join('')+'</div>';return}
-const a=assets(),baseline=baselineAt(s.done?12:s.month-1),profit=a-baseline,remaining=(major.months.filter(m=>m>=s.month).sort((a,b)=>a-b)[0]??12)-s.month;
-$('summary').innerHTML=`<div class="stats"><div class="box stat"><small>${s.done?'12か月 完走':'現在の月 ・ '+escapeText(jobs[s.job].name)}</small><strong>${s.month}<span class="muted" style="font-size:16px"> / 12月</span></strong></div><div class="box stat"><small>総資産 = 現金 + 株の時価</small><strong>${yen(a)}</strong></div><div class="box stat"><small>使える現金</small><strong>${yen(s.cash)}</strong></div><div class="box stat"><small>投資による増減（職業収入を除く）</small><strong class="${profit>=0?'up':'down'}">${profit>=0?'+':''}${yen(profit)}</strong></div></div>`+(s.done?`<div class="finish"><div class="eyebrow">YEAR COMPLETE</div><h2>おつかれさま！ 投資家ランク ${escapeText(rankFor(assets()))}</h2><p>最終資産 ${yen(a)} ／ 投資なしなら${yen(baselineAt(12))}</p><p>受取配当合計 ${yen(s.dividends)} ／ 確定した売買損益 ${yen(s.realized)}</p></div>`:`<div class="banner"><div class="row"><h3>${remaining===0?'今月末、大規模イベント発生！':'次の大規模イベントまで あと'+remaining+'か月'}</h3></div></div>`);
-$('monthlyNews').replaceChildren(...(s.monthlyNews.length?s.monthlyNews:[{title:'まだイベント結果はありません',kind:'今月の情報を調べて取引しよう',tags:[],rate:0}]).map(e=>{const item=document.createElement('article');item.className='event';const title=document.createElement('h3');title.textContent=e.title;const label=document.createElement('small');label.textContent=e.kind;const impact=document.createElement('p');impact.className=e.rate<0?'down':'up';impact.textContent=e.rate>0?'↗ 上昇 +'+e.rate+'%':e.rate<0?'↘ 下落 '+e.rate+'%':'変動なし（0%）';const targets=document.createElement('p');targets.textContent=(e.targets||e.tags.length)?e.tags.join(' / ')+'：'+affected(e).map(i=>companies[i].name).join('、'):'初期株価で取引を始めよう。';const detail=document.createElement('p');detail.textContent=e.explanation||(e.id!==undefined&&events[e.id]?(e.rate===0?events[e.id].failure:events[e.id].success):e.text||'');item.append(label,title,detail,impact,targets);return item}));
-$('choiceHint').textContent=s.done?'今年の調査は終了しました。':'調査 '+s.selected.length+'/'+jobs[s.job].count+'件'+(s.job==='influencer'?' / 強化 '+(s.boostedEventId===null?'未使用（毎月1件・変更不可）':'使用済み'):'')+(s.job==='employee'?' / 今月の月収 '+yen(salaryFor(s.job,s.month)):'');
-$('choices').innerHTML=s.done?'':s.choices.map((id,i)=>s.selected.includes(id)?eventHTML(events[id]):'<article class="event"><span class="eyebrow">非公開情報 '+(i+1)+'</span><div>'+tags(events[id].tags)+'</div><h3>未調査のイベント</h3><button data-choice="'+id+'" '+(s.selected.length>=jobs[s.job].count?'disabled':'')+'>この情報を調べる</button>'+boostHTML(id)+'</article>').join('');
-$('clue').textContent=s.done?'12か月の取材を終えました。結果と履歴を振り返ってみよう。':events[s.clue].hint;
-$('stocks').innerHTML=companies.map((c,i)=>{const unreal=s.prices[i]*s.qty[i]-s.cost[i],change=(s.prices[i]/s.prev[i]-1)*100;return `<article class="stock"><div class="row"><div><h3>${escapeText(c.name)}</h3><small>${escapeText(c.desc)}</small></div><div>${tags(c.tags)}</div></div><div class="row" style="margin-top:10px"><span class="price">${yen(s.prices[i])}<small style="font-size:12px"> / 株</small></span><span class="${change>=0?'up':'down'}">${change>=0?'+':''}${change.toFixed(1)}% <small>前月比（ニュース反映後）</small></span></div><dl><dt>100株の購入費用</dt><dd>${yen(s.prices[i]*100)}</dd><dt>毎月の配当利回り</dt><dd>${c.yieldPct}%${jobs[s.job].dividendMultiplier!==1?' × 配当'+jobs[s.job].dividendMultiplier+'倍':''}</dd><dt>保有株数 / 配当見込み</dt><dd>${s.qty[i]}株 / ${yen(dividendFor(i))}</dd><dt>平均購入額</dt><dd>${s.qty[i]?yen(s.cost[i]/s.qty[i]):'—'}</dd><dt>含み損益（未売却の損益）</dt><dd class="${unreal>=0?'up':'down'}">${unreal>=0?'+':''}${yen(unreal)}</dd></dl>${stockChart(i)}<div class="trade"><label>株数 <input id="qty${i}" aria-label="${escapeText(c.name)}の取引株数" type="number" min="100" step="100" value="100" ${s.done?'disabled':''}></label><button class="primary" data-buy="${i}" ${s.done?'disabled':''}>買う</button><button data-sell="${i}" ${s.done||!s.qty[i]?'disabled':''}>売る</button><button class="small" data-max="${i}" ${s.done?'disabled':''}>最大購入</button><button class="small" data-all="${i}" ${s.done||!s.qty[i]?'disabled':''}>全売却</button></div></article>`}).join('');
-$('endTitle').textContent=s.done?'12か月の取引が終了しました':`${s.month}月を締めよう`;$('endHint').textContent=s.done?'結果は保存できます。「最初から」で再挑戦。':`現在の株価での配当見込み（確定額は月末株価で計算） ${yen(monthlyDividend())} / 職業の収入 +${jobs[s.job].randomIncome?yen(jobs[s.job].randomIncome.min)+'〜'+yen(jobs[s.job].randomIncome.max)+'（抽選）':yen(salaryFor(s.job,s.month)+bonusFor(s.job,s.month))}。`;$('next').textContent=s.done?'ゲーム終了':s.month===12?'12月末へ進む・結果を見る':`${s.month}月末へ・イベント結果を見る →`;$('next').disabled=s.done;
-$('log').replaceChildren(...s.log.map(t=>{const li=document.createElement('li');li.textContent=t;return li}));chart()}
-function stockChart(i){const rows=s.priceHistory,values=rows.filter(Boolean).map(r=>r[i]),lo=Math.min(...values),hi=Math.max(...values),pad=Math.max(1,(hi-lo)*.15),low=Math.max(0,lo-pad),high=hi+pad,y=n=>115-(n-low)/(high-low)*90,x=m=>42+m*440/12;let d='',gap=true;rows.forEach((r,m)=>{if(!r){gap=true;return}d+=(gap?'M':'L')+x(m)+','+y(r[i])+' ';gap=false});const color=s.prices[i]>=companies[i].price?'#b5ef8a':'#ffaba5';return '<div class="stock-history"><div class="row"><small>株価推移 · 月末</small><small>'+yen(lo)+'〜'+yen(hi)+'</small></div><svg viewBox="0 0 520 145" role="img" aria-label="'+escapeText(companies[i].name)+'の株価推移"><line x1="42" x2="482" y1="115" y2="115" stroke="#334854"/><path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="2.5"/>'+rows.map((r,m)=>r?'<circle cx="'+x(m)+'" cy="'+y(r[i])+'" r="3" fill="'+color+'"><title>'+(m===0?'開始時':m+'月末')+'：'+yen(r[i])+'</title></circle>':'').join('')+'<text x="42" y="137">開始</text><text x="252" y="137">6月</text><text x="460" y="137">12月</text></svg><details><summary>月別の株価</summary>'+rows.map((r,m)=>'<div>'+(m===0?'開始時':m+'月末')+'：'+(r?yen(r[i]):'記録なし')+'</div>').join('')+'</details></div>'}
-function chart(){const h=s.history,base=h.map((_,i)=>baselineAt(i)),max=Math.max(...h,...base)*1.12,min=0,w=560,hh=150;const points=arr=>arr.map((n,i)=>`${30+i*(500/12)},${hh-n/max*125}`).join(' ');$('chart').innerHTML=`<svg class="chart" viewBox="0 0 560 180" role="img" aria-label="総資産の月末推移。詳細は下の一覧"><line x1="30" y1="150" x2="530" y2="150" stroke="#53636c"/><polyline points="${points(base)}" fill="none" stroke="#a3afb6" stroke-width="2" stroke-dasharray="5 5"/><polyline points="${points(h)}" fill="none" stroke="#b5ef8a" stroke-width="3"/>${h.map((n,i)=>`<circle cx="${30+i*500/12}" cy="${hh-n/max*125}" r="4" fill="#b5ef8a"><title>${i===0?'開始時':i+'月'}：${yen(n)}</title></circle>`).join('')}<text x="30" y="175" fill="#adbdc5" font-size="12">開始</text><text x="280" y="175" fill="#adbdc5" font-size="12">6月</text><text x="510" y="175" fill="#adbdc5" font-size="12">12月</text></svg>`;$('chartText').innerHTML=`累計配当 <span class="up">${yen(s.dividends)}</span><details><summary>月ごとの金額を見る</summary>${h.map((n,i)=>`<div>${i===0?'開始':i+'月末'}：${yen(n)}</div>`).join('')}</details>`}
-document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b||b.disabled)return;const d=b.dataset;if(d.boost!==undefined)boost(+d.boost);if(d.choice!==undefined)choose(+d.choice);if(d.job!==undefined)start(d.job);if(d.buy!==undefined)trade(+d.buy,true);if(d.sell!==undefined)trade(+d.sell,false);if(d.max!==undefined)trade(+d.max,true,true);if(d.all!==undefined)trade(+d.all,false,true)});
-
-let scenes=[],sceneIndex=0,sceneTimer=null,autoScene=false,audioOn=false,audioContext=null;
-const reduced=()=>window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-function tone(kind='up'){if(!audioOn)return;try{audioContext=audioContext||new(window.AudioContext||window.webkitAudioContext)();audioContext.resume();const notes=kind==='down'?[330,247]:kind==='major'?[440,554,659,880]:[523,659];notes.forEach((f,i)=>{const o=audioContext.createOscillator(),g=audioContext.createGain(),t=audioContext.currentTime+i*.09;o.type='sine';o.frequency.value=f;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.055,t+.015);g.gain.exponentialRampToValueAtTime(.001,t+.2);o.connect(g);g.connect(audioContext.destination);o.start(t);o.stop(t+.22)})}catch{}}
-function escapeText(t){return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function closeShow(){clearTimeout(sceneTimer);if($('showtime').open)$('showtime').close();$('replay').focus()}
-function advanceShow(){if(sceneIndex>=scenes.length-1){closeShow();return}sceneIndex++;drawScene()}
-function drawScene(){clearTimeout(sceneTimer);const v=scenes[sceneIndex];if(!v)return;$('stageProgress').textContent=(sceneIndex+1)+' / '+scenes.length;$('stageMeter').style.width=((sceneIndex+1)/scenes.length*100)+'%';$('advanceShow').textContent=sceneIndex===scenes.length-1?(s.done?'結果を見る':'取引を始める →'):'次へ →';const stage=$('stage');stage.className=v.major?'major':'';stage.innerHTML='<div class="reveal"><div class="stage-label">'+escapeText(v.label)+'</div><div class="stage-icon">'+v.icon+'</div><h2 id="stageTitle" class="stage-title">'+escapeText(v.title)+'</h2><div class="stage-number '+(v.negative?'down':'up')+'">'+escapeText(v.value)+'</div><p class="stage-sub">'+escapeText(v.sub)+'</p>'+(v.rows?'<div class="stage-prices">'+v.rows.map(r=>'<div class="stage-price"><span>'+escapeText(r[0])+'</span><strong>'+escapeText(r[1])+'</strong></div>').join('')+'</div>':'')+'</div>';if(v.major&&!reduced())for(let i=0;i<18;i++){const c=document.createElement('i');c.className='confetti';c.style.cssText='--x:'+((i*37)%100)+'%;--delay:'+(i%6)*.12+'s;--c:'+(['#ffd08a','#b5ef8a','#b3dfff'][i%3]);stage.append(c)}tone(v.major?'major':v.negative?'down':'up');if(autoScene&&sceneIndex<scenes.length-1)sceneTimer=setTimeout(advanceShow,2600)}
-function openShow(){if(!scenes.length||typeof $('showtime').showModal!=='function')return;sceneIndex=0;$('showtime').showModal();drawScene();$('advanceShow').focus()}
-function dramaticNext(){if(!s.job||s.done||$('showtime').open)return;const month=s.month,before=assets(),prices=[...s.prices],divBefore=s.dividends;next();const income=s.incomeHistory.at(-1),div=s.dividends-divBefore;scenes=[{label:month+'月 決算',icon:'◈',title:income+div>0?'今月の報酬が届きました':'今月の収支をチェック',value:'+'+yen(income+div),sub:'積み重ねた配当も、次の投資資金に。',rows:[['毎月配当','+'+yen(div)],['職業収入・ボーナス','+'+yen(income)]]}];{scenes.push({label:'NEW MONTH',icon:'◷',title:month+'月、市場の答え合わせ。',value:month+'月',sub:'まずはニュースをチェック。あなたの作戦はどうなる？'});for(const e of s.monthlyNews){const major=e.kind.startsWith('大規模'),reserved=e.kind.startsWith('予定'),failed=reserved&&e.rate===0;const rows=affected(e).map(i=>{const old=prices[i];prices[i]=Math.max(1,Math.round(old*(1+e.rate/100)));return [companies[i].name,yen(old)+' → '+yen(prices[i])]});scenes.push({label:major?'SPECIAL REPORT · 大規模イベント':reserved?'MARKET REPORT · 予定の結果':'MARKET NEWS',icon:major?'✦':failed?'…':e.rate<0?'↘':'↗',title:e.title,value:failed?'不発 · 0%':(e.rate>0?'+':'')+e.rate+'%',negative:e.rate<0,major,sub:e.explanation||(reserved&&events[e.id]?(failed?events[e.id].failure:events[e.id].success):e.rate<0?'資金繰りの悪化で事業継続への懸念が広がり、株価が半分に。':'大型提携により販路と技術が拡大する見通しとなり、株価が2倍に。'),rows})}}
-const change=assets()-before,profit=assets()-baselineAt(s.done?12:s.month-1),rank=rankFor(assets());scenes.push({label:s.done?'YEAR COMPLETE':'YOUR TURN',icon:s.done?'♛':'◎',title:s.done?'12か月の挑戦、おつかれさま！':'ニュース発表終了。次はあなたの番。',value:s.done?'RANK '+rank:yen(assets()),major:s.done,sub:s.done?'配当と売買で育てた、あなたの最終成績。':'現在の総資産。ニュースを反映した株価で売買できます。',rows:[['総資産',yen(assets())],['今回の資産増減（収入・配当を含む）',(change>=0?'+':'')+yen(change)],['投資による累計増減',(profit>=0?'+':'')+yen(profit)]]});const payout=scenes.shift();scenes.splice(scenes.length-1,0,payout);$('replay').hidden=false;openShow()}
-$('sound').onclick=()=>{audioOn=!audioOn;$('sound').textContent='効果音 '+(audioOn?'ON':'OFF');$('sound').setAttribute('aria-pressed',String(audioOn));tone()};
-$('skipShow').onclick=closeShow;$('advanceShow').onclick=advanceShow;$('replay').onclick=openShow;$('showtime').addEventListener('close',()=>clearTimeout(sceneTimer));$('autoShow').onclick=()=>{autoScene=!autoScene;$('autoShow').textContent='自動再生 '+(autoScene?'ON':'OFF');$('autoShow').setAttribute('aria-pressed',String(autoScene));clearTimeout(sceneTimer);if(autoScene&&sceneIndex<scenes.length-1)sceneTimer=setTimeout(advanceShow,2600)};
-
-$('save').onclick=()=>save();$('load').onclick=()=>{if(confirm('保存した状態を読み込みますか？'))load()};$('reset').onclick=()=>{if(confirm('現在の進行と保存データを消して、最初から始めますか？'))fresh()};$('next').onclick=dramaticNext;
-document.querySelector('.market-strip span:last-child').textContent='初期資金'+yen(config.initialCash)+' → どこまで育てられる？';
-if(!load(false))fresh(false);
-
+function initializeGame(data) {
+  const E = KabuEngine, $ = id => document.getElementById(id);
+  const KEY = 'kabugurashi-plans-v3:' + location.pathname;
+  const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const yen = n => Math.round(n).toLocaleString('ja-JP') + '円';
+  const date = m => Math.floor((m - 1) / 12) + 1 + '年目 ' + ((m - 1) % 12 + 1) + '月';
+  const signed = n => (n > 0 ? '+' : '') + n + '%';
+  const tags = ts => ts.map(t => '<span class="tag">' + esc(t) + '</span>').join('');
+  const disabled = ok => ok ? '' : ' disabled';
+  const theatre = createPresentation();
+  const careerFlavour = { employee: '着実に稼ぐ。その一歩が、いつか大きな元手になる。', trader: '誰よりも先に、ニュースの向こう側を読む。', influencer: '出会いと発信が、市場を動かす力になる。', wealthy: 'お金が働き、次のお金を連れてくる。' };
+  const storyVoices = {
+    reporter: ['「この会社、何かありそうなんです。一緒に追いかけてくれませんか？」', '「やっぱり。現場まで来ないと、分からないことがありますね」', '「記事になりました！ これから、とっておきの話はあなたにも」'],
+    mentor: ['「派手なニュースだけが、投資じゃない。少し話をしませんか」', '「毎月届く配当にも、その会社の姿勢が出るものです」', '「もう、立派な研究仲間ですね。これからも長い目で見ていきましょう」'],
+    founder: ['「この計画、あなたならどう見ますか？ 率直な意見がほしいんです」', '「紹介してくれた会社と、話が進みました。あと一歩です！」', '「発表会、大成功です。この会社の未来を、一緒に持っていてください」']
+  };
+  const storyInvitations = {
+    reporter: ['「取材先を探しているんです」', '「今度は現場まで、来てもらえませんか？」', '「最後に、原稿を見てもらいたくて」'],
+    mentor: ['「研究会に、顔を出してみませんか」', '「気になる企業があるんです。一緒に調べましょう」', '「研究の成果、皆さんに聞いてもらいませんか」'],
+    founder: ['「事業計画に、意見をもらえませんか？」', '「力を貸してくれそうな会社、知りませんか？」', '「いよいよ発表会です。来てくれますよね？」']
+  };
+  let s = E.createGame(data), timer;
+  function toast(message) { $('notice').textContent = message; clearTimeout(timer); timer = setTimeout(() => { $('notice').textContent = ''; }, 5500); }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(s)); $('saveWarning').hidden = true; return true; }
+    catch { $('saveWarning').hidden = false; $('saveWarning').textContent = '保存できませんでした。この画面では続けられますが、閉じると進行が失われます。ブラウザの保存設定や空き容量を確認してください。'; return false; }
+  }
+  function load() {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) { if(localStorage.getItem('kabugurashi-two-years-v2:' + location.pathname)) { $('saveWarning').hidden=false; $('saveWarning').textContent='予定・調査pt版は、新しい挑戦から始まります。以前の記録はブラウザ内に保管されています。'; } return false; }
+    if (raw.length > 2000000) throw Error('保存データが大きすぎます。');
+    s = E.restore(raw, data); return true;
+  }
+  function perform(operation, message) {
+    try { operation(); save(); render(); if (message !== false) toast(message || s.log[0]?.message || '完了しました'); return true; }
+    catch (error) { toast(error.message); return false; }
+  }
+  function discoveries(before) {
+    const scenes=[];
+    for(const a of E.ACHIEVEMENTS.filter(a=>s.achievements.includes(a.id)&&!before.achievements.includes(a.id))) scenes.push({label:'新しい力',mood:'gold',art:'stars',icon:'✦',speaker:'積み重ねが、実を結んだ。',title:a.name,text:a.reward,word:'UNLOCKED'});
+    if(s.careerLevel>before.careerLevel) scenes.push({label:'職業成長',mood:'gold',art:'stars',icon:E.CAREERS[s.career].icon,title:E.CAREERS[s.career].name+' Lv.'+(s.careerLevel+1),text:s.career==='employee'?'仕事ぶりが認められた。バイトの報酬が上がった！':s.career==='trader'?'情報収集が板についてきた。得られる調査ptが増えた！':s.career==='influencer'?'声が届くようになった。発信の影響が大きくなった！':'配当が次の配当を育てる。受け取る配当が増えた！',word:'LEVEL UP'});
+    if(Math.floor(s.knowledge/2)>Math.floor(before.knowledge/2))scenes.push({label:'気づき',art:'study',icon:'◈',title:'情報を集めるコツが、つかめてきた。',text:'情報収集1回で得られる調査ptが増える。',word:'DISCOVERY'});
+    if(Math.floor(s.contacts/3)>Math.floor(before.contacts/3))scenes.push({label:'人脈が広がった',art:'social',icon:'◎',title:'「面白い話があったら、連絡します」',text:'翌月から毎月の調査ptが増える。',word:'CONNECTED'});
+    return scenes;
+  }
+  function actionWithScene(action, target) {
+    const before = structuredClone(s);
+    if (!perform(() => E.act(s, data, action, target), false)) return;
+    const variants = {
+      work: ['ひと仕事、やり遂げた。', '帰り道。口座に届いた入金を見て、少し足取りが軽くなった。', 'work', '▣'],
+      gig: ['思い切って、引き受けてよかった。', '「助かりました。また、お願いしてもいいですか？」', 'work', '✧'],
+      study: ['昨日より、少し読める。', ['静かな机で、企業の記事を読み返す。知らない言葉が、少しずつ減っていく。', 'ばらばらだったニュースが、ひとつの流れに見えてきた。', 'ノートを閉じる。次のニュースが、少し楽しみになった。'][before.stats.studies % 3], 'study', '▤'],
+      network: ['またひとり、顔なじみが増えた。', ['名刺の裏に、小さなメモ。「また、お話ししましょう」', '何気ない会話が弾んだ。帰る頃には、次に会う約束ができていた。'][before.stats.networks % 2], 'social', '◎'],
+      research: ['手がかりが、集まってきた。', '足を運び、話を聞く。集めた情報を、どの予定に使おうか。', 'study', '⌕']
+    };
+    let v;
+    if (action === 'story') {
+      const t = E.STORIES.find(t => t.id === target), complete = s.stories[target].step === 3;
+      v = { label: t.name, mood: complete ? 'gold' : 'calm', art: 'social', icon: complete ? '✦' : '◎', speaker: target === 'reporter' ? '若手記者・ハル' : target === 'mentor' ? '研究会の先輩・ナギ' : '起業家・ソウ', title: t.steps[before.stories[target].step], text: storyVoices[target][before.stories[target].step], rows: complete ? [['つながりの贈り物', t.reward]] : [['物語', s.stories[target].step + ' / 3']], word: complete ? 'STORY COMPLETE' : 'A NEW CONNECTION' };
+    } else {
+      const [title, text, art, icon] = variants[action];
+      const rows = action === 'study' ? [['知識', before.knowledge + ' → ' + s.knowledge]] : action === 'network' ? [['人脈', before.contacts + ' → ' + s.contacts]] : action === 'research' ? [['調査pt', before.researchPoints + ' → ' + s.researchPoints]] : [['入金', '＋' + yen(s.cash - before.cash)]];
+      v = { label: date(before.month) + (before.actions ? '・後半' : '・前半'), title, text, art, icon, rows, word: action.toUpperCase() };
+    }
+    const extra = discoveries(before), compact = { ...v, rows: [...(v.rows || []), ...extra.map(x => [x.label, x.title + ' ' + x.text])] };
+    theatre.play([v, ...extra], () => { if(action==='research') $('information').scrollIntoView({behavior:'smooth',block:'start'}); else if (s.phase === 'trade') $('market').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, compact);
+  }
+  function inspectWithScene(uid) {
+    const before=structuredClone(s);
+    if(!perform(()=>E.inspect(s,data,uid),false))return;
+    const v=E.planView(s,data,s.plans.find(p=>p.uid===uid));
+    const rows=v.level===1?[['タグ',v.tags.join(' / ')],...(v.stages>1?[['連続イベント',v.stage+' / '+v.stages+'段階目']]:[])]:v.level===2?[['成功したら',signed(v.rate)],['失敗したら',signed(v.failureRate)]]:[['成功率',v.probability+'%']];
+    rows.push(['調査pt',before.researchPoints+' → '+s.researchPoints]);
+    const scene={label:['','タグが判明','値動きが判明','成功率が判明'][v.level],art:'study',icon:'⌕',title:v.title,text:['','噂の向かう先が、見えてきた。','期待の大きさと、その裏側が見えてきた。','集めた話が、ひとつの見通しになった。'][v.level],rows,word:'RESEARCH FILE'};
+    const extra=discoveries(before);
+    theatre.play([scene,...extra],null,{...scene,rows:[...rows,...extra.map(x=>[x.label,x.title+' '+x.text])]});
+  }
+  function canAct() { return s.phase === 'action' && !s.rewardPending; }
+  function heading(n, title, sub) { return '<div class="section-heading"><span class="eyebrow">' + n + '</span><h2>' + title + '</h2>' + (sub ? '<p class="muted">' + sub + '</p>' : '') + '</div>'; }
+  function actionCard(icon, title, text, button, action, available = true) {
+    return '<article class="event"><span class="action-icon">' + icon + '</span><h3>' + title + '</h3><p class="muted">' + text + '</p><button data-action="' + action + '"' + disabled(canAct() && available) + '>' + button + ' <small>・1行動</small></button></article>';
+  }
+  function render() {
+    const starting = s.phase === 'start', ended = s.phase === 'ended';
+    $('career').hidden = !starting; $('play').hidden = starting; $('save').disabled = starting;
+    if (starting) {
+      $('career').innerHTML = '<div class="hero"><div class="eyebrow">24 MONTHS / 48 CHOICES</div><h1>その選択が、<br>未来の資産になる。</h1><p>学ぶ。つながる。先回りする。<br>100万円から始める、2年間の投資家生活。</p><div class="pills"><span>毎月2回の行動</span><span>売買は月末</span><span>半年ごとの目標</span></div></div><h2>目指す職業を選ぼう</h2><p class="muted">なりたい自分から、はじめよう。</p><div class="career-grid">' + Object.entries(E.CAREERS).map(([id, c]) => '<article class="event career-card"><span class="action-icon">' + c.icon + '</span><h3>' + c.name + '</h3><p>' + careerFlavour[id] + '</p><button class="primary" data-career="' + id + '">' + c.name + 'を目指す →</button></article>').join('') + '</div><div class="banner"><strong>挑戦のゴール</strong><p>最初の約束は、半年で200万円。期限の月末に届かなければ、挑戦はそこで終わる。</p></div>';
+      return;
+    }
+    const total = E.assets(s), c = E.CAREERS[s.career];
+    const phase = ended ? '挑戦終了' : s.rewardPending ? '目標報酬を選ぼう' : s.phase === 'trade' ? '月末・売買の時間' : s.actions === 0 ? '前半・行動を選ぼう' : '後半・行動を選ぼう';
+    $('summary').innerHTML = '<div class="month-title row"><div><div class="eyebrow">YOUR INVESTOR LIFE</div><h1>' + date(s.month) + '</h1><p class="muted">' + phase + ' / ' + c.name + 'を目指して Lv.' + (s.careerLevel + 1) + '</p></div><div class="turn-steps"><span class="' + (s.actions >= 1 ? 'complete' : 'current') + '">① 前半</span><span class="' + (s.actions >= 2 ? 'complete' : s.actions === 1 ? 'current' : '') + '">② 後半</span><span class="' + (s.phase === 'trade' ? 'current' : '') + '">③ 月末売買</span></div></div><div class="stats"><div class="box stat"><small>総資産</small><strong>' + yen(total) + '</strong></div><div class="box stat"><small>使える現金</small><strong>' + yen(s.cash) + '</strong></div><div class="box stat"><small>累計配当</small><strong class="up">' + yen(s.stats.dividends) + '</strong></div><div class="box stat"><small>使った行動</small><strong>' + s.stats.actions + '<small> / 48回</small></strong></div></div>';
+    $('outcome').innerHTML = ended ? '<div class="finish ' + (s.result === 'failed' ? 'failure' : '') + '"><div class="eyebrow">' + (s.result === 'clear' ? 'DREAM ACHIEVED' : 'TRY ANOTHER PATH') + '</div><h2>' + (s.result === 'clear' ? '2年間をクリア！ ' + c.name + 'への第一歩。' : '期限の目標に届きませんでした。') + '</h2><p>最終資産 ' + yen(total) + ' ／ 達成した実績 ' + s.achievements.length + '件 ／ 行動 ' + s.stats.actions + '回</p><p>' + (s.result === 'clear' ? '育てた能力と積み重ねた投資が、実を結びました。' : 'バイトで元手を補う、早く人脈を育てる、配当を再投資する。履歴を振り返り、次の作戦へ。') + '</p><button data-restart class="primary">新しい挑戦へ</button></div>' : '';
+    $('goals').innerHTML = '<div class="goal-grid">' + data.config.goals.map(g => {
+      const passed = s.goalsPassed.includes(g.month), current = !passed && g.month >= s.month;
+      return '<article class="goal ' + (passed ? 'passed' : current && !data.config.goals.some(x => x.month >= s.month && x.month < g.month) ? 'selected' : '') + '"><small>' + date(g.month) + '末 ' + (passed ? '✓ 達成' : '') + '</small><strong>' + yen(g.amount) + '</strong><span>' + esc(g.title) + '</span><progress max="' + g.amount + '" value="' + (passed ? g.amount : Math.min(total, g.amount)) + '" aria-label="' + esc(g.title) + 'の達成度"></progress>' + (current && !ended ? '<small>期限まで' + (g.month - s.month + 1) + 'か月 / あと' + yen(Math.max(0, g.amount - total)) + '</small>' : '') + '</article>';
+    }).join('') + '</div>';
+    $('reward').hidden = !s.rewardPending;
+    $('reward').innerHTML = '<h2>目標突破！ 次の半年の力を選ぼう</h2><p>次の半年に向けて、ひとつ選ぼう。</p><div class="cards"><button data-reward="cash">投資資金<br>＋' + yen(300000 * s.goalsPassed.length) + '</button><button data-reward="dividend">複利を育てる<br>配当倍率＋0.20</button><button data-reward="network">情報網を広げる<br>毎月の調査pt＋2</button></div>';
+    renderActions(); renderInformation(); renderStories(); renderMarket(); renderProgress(); renderChart();
+    const chapter = data.config.goals.find(g => g.month >= s.month) || data.config.goals.at(-1);
+    const roadmap = $('goals').innerHTML;
+    $('goals').innerHTML = '<div class="chapter-goal"><div><small>' + date(chapter.month) + '末までに</small><strong>' + yen(chapter.amount) + '</strong></div><div><span>' + esc(chapter.title) + '</span><p>' + (ended ? '今回の挑戦の記録' : chapter.month === s.month ? '今月が期限。月末の総資産で判定。' : 'あと' + (chapter.month - s.month + 1) + 'か月 / 月末に未達なら終了') + '</p></div></div><details class="roadmap"><summary>2年間の目標を見る</summary>' + roadmap + '</details>';
+    $('endTurn').innerHTML = '<div class="row"><div><h2>' + (ended ? '今回の挑戦は終了しました' : s.phase === 'trade' ? '売買が済んだら、今月の答え合わせ。' : '今月はあと' + (2 - s.actions) + '回行動できます') + '</h2><p class="muted">' + (ended ? '結果と履歴を振り返れます。' : '配当見込み ' + yen(E.dividend(s)) + '（値動きで変わります）') + '</p></div><button class="primary" data-settle' + disabled(s.phase === 'trade') + '>月を締める →</button></div>';
+    $('news').innerHTML = s.news.length ? newsHTML(s.news) : '<p class="muted">月を締めると、ここに結果が届きます。</p>';
+    $('log').innerHTML = s.log.map(l => '<li><small>' + date(l.month) + '</small><br>' + esc(l.message) + '</li>').join('');
+  }
+  function renderActions() {
+    $('actions').innerHTML = heading('01 / CHOOSE YOUR ACTION', '今月を、何に使う？', s.phase === 'trade' ? '2回の行動が完了しました。月末の売買へ進みましょう。' : '残り' + (2 - s.actions) + '行動。今日は、何をしよう。') + '<div class="cards">' +
+      actionCard('▣', 'バイト', '働いた分を、次の一手に。', '＋' + yen(E.workPay(s)), 'work') +
+      actionCard('⌕', '情報収集', '調査に使う手がかりを集める。', '調査pt ＋' + E.researchGain(s), 'research') +
+      actionCard('▤', '勉強', '情報収集の力を磨く。', s.knowledge >= 6 ? '知識は最大です' : '知識を磨く', 'study', s.knowledge < 6) +
+      actionCard('◎', '交流', '何気ない会話が、いつか情報になる。', s.contacts >= 9 ? '人脈は最大です' : '人脈を広げる', 'network', s.contacts < 9) +
+      (s.gig ? actionCard('✧', '今月だけの特別案件', '「少し急ぎの仕事、頼めますか？」', '＋' + yen(E.workPay(s, true)), 'gig') : '') + '</div><a class="text-link" href="#information">調査ptを使う ↓</a>';
+  }
+  function renderInformation() {
+    const active=['action','trade'].includes(s.phase)&&!s.rewardPending;
+    $('information').innerHTML=heading('RESEARCH FILES','未来の予定を、読み解く。','タグ → 値動き → 成功率')+'<div class="research-wallet"><div><small>調査pt</small><strong id="researchPoints">'+s.researchPoints+'<span> pt</span></strong></div><p>情報収集で貯めて、気になる予定に使おう。</p><a href="#actions">情報収集へ ↑</a></div><div class="information-grid">'+s.plans.map(plan=>{
+      const v=E.planView(s,data,plan),known=v.level>=1;
+      const next=['タグを調べる','値動きを調べる','成功率を調べる'][v.level];
+      return '<article class="event plan '+(known?'known':'sealed')+'" data-plan="'+v.uid+'" data-level="'+v.level+'"><div class="plan-clock">◷ あと'+v.remaining+'か月'+(v.remaining===1?' <small>今月末</small>':'')+'</div>'+(known?'<div>'+tags(v.tags)+'</div><h3>'+esc(v.title)+'</h3>'+(v.stages>1?'<small class="chain-stage">'+v.stage+' / '+v.stages+'段階目</small>':''):'<h3 class="muted">未調査の予定</h3>')+(v.level>=2?'<div class="plan-rates"><span class="up">成功 '+signed(v.rate)+'</span><span class="down">失敗 '+signed(v.failureRate)+'</span></div>':'')+(v.level>=3?'<div class="success-chance">成功率 <strong>'+v.probability+'%</strong></div>':'')+(known?'<div class="investigation-steps" aria-label="情報 '+v.level+' / 3">'+['タグ','値動き','成功率'].map((t,i)=>'<span class="'+(i<v.level?'opened':'')+'">'+t+'</span>').join('')+'</div>':'')+(v.level<3?'<button data-inspect="'+v.uid+'"'+disabled(active&&s.researchPoints>=v.cost)+'>'+next+' <strong>'+v.cost+'pt</strong></button>'+(active&&s.researchPoints<v.cost?'<small>あと'+(v.cost-s.researchPoints)+'pt</small>':''):'<small class="up">✓ 調査完了</small>')+(s.career==='influencer'&&known?'<button class="small" data-boost="'+v.uid+'"'+disabled(s.phase==='trade'&&s.boosted===null&&v.boost===0)+'>'+(v.boost?'発信済み ＋'+v.boost+'ポイント':'発信で応援')+'</button>':'')+'</article>';
+    }).join('')+'</div>';
+  }
+  function renderStories() {
+    const met = E.STORIES.filter(t => s.month >= t.start && (s.month <= t.end || s.stories[t.id].step > 0));
+    $('stories').innerHTML = heading('ENCOUNTERS', '気になる、あの人。', '') + '<div class="encounters">' + met.map(t => {
+      const v = s.stories[t.id], open = s.month <= t.end && v.step < 3;
+      const person = t.id === 'reporter' ? 'ハル / 若手記者' : t.id === 'mentor' ? 'ナギ / 研究会の先輩' : 'ソウ / 起業家';
+      return '<article class="event encounter"><div class="person-badge" aria-hidden="true">' + (t.id === 'reporter' ? 'H' : t.id === 'mentor' ? 'N' : 'S') + '</div><div><small>' + person + ' ・ ' + date(t.end) + 'まで</small><h3>' + t.name + '</h3><p class="muted">' + (v.step === 3 ? t.reward : !open ? 'あの約束は、もう過ぎてしまった。' : storyInvitations[t.id][v.step]) + '</p><div class="story-dots" aria-label="' + v.step + ' / 3段階">' + [0,1,2].map(i => '<i class="' + (i < v.step ? 'lit' : '') + '"></i>').join('') + '</div></div><button data-story="' + t.id + '"' + disabled(canAct() && open) + '>' + (v.step === 3 ? '✓ 結ばれた縁' : !open ? '過ぎた約束' : t.steps[v.step] + ' ・1行動') + '</button></article>';
+    }).join('') + '</div>';
+  }
+  function renderMarket() {
+    const open = s.phase === 'trade';
+    $('market').innerHTML = heading('05 / MONTH-END TRADING', '資金を、どこへ置く？', open ? '月末の市場が開きました。売買は行動消費なし。' : s.phase === 'ended' ? '取引は終了しました。' : '売買は、2回行動した後の月末に。') + '<div class="stock-grid">' + data.companies.map((c, i) => {
+      const base = s.history.length > 1 ? s.history[s.history.length - 2].prices[i] : c.price;
+      const change = (s.prices[i] / base - 1) * 100, unreal = s.prices[i] * s.qty[i] - s.cost[i];
+      return '<article class="stock"><div class="row"><h3>' + esc(c.name) + '</h3><small>' + tags(c.tags) + '</small></div><p class="company-description muted">' + esc(c.desc) + '</p><div class="row"><strong class="price">' + yen(s.prices[i]) + '</strong><span class="' + (change >= 0 ? 'up' : 'down') + '">' + signed(Number(change.toFixed(1))) + '</span></div><dl><dt>100株の購入費用</dt><dd>' + yen(s.prices[i] * 100) + '</dd><dt>保有株数</dt><dd>' + s.qty[i].toLocaleString('ja-JP') + '株</dd><dt>含み損益</dt><dd class="' + (unreal >= 0 ? 'up' : 'down') + '">' + yen(unreal) + '</dd><dt>毎月の配当利回り</dt><dd>' + s.yields[i] + '% × ' + E.dividendMultiplier(s).toFixed(2) + '</dd></dl><div class="trade"><label class="muted">株数 <input id="qty' + i + '" type="number" min="100" step="100" value="100" aria-label="' + esc(c.name) + 'の取引株数"' + disabled(open) + '></label><button data-buy="' + i + '" class="primary"' + disabled(open) + '>買う</button><button data-sell="' + i + '"' + disabled(open && s.qty[i] > 0) + '>売る</button><button class="small" data-max="' + i + '"' + disabled(open && s.cash >= s.prices[i] * 100) + '>最大購入</button><button class="small" data-all="' + i + '"' + disabled(open && s.qty[i] > 0) + '>全売却</button></div><details class="stock-history"><summary>株価の履歴</summary>' + s.history.map(h => '<small>' + (h.month ? date(h.month) : '開始時') + '：' + yen(h.prices[i]) + '</small><br>').join('') + '</details></article>';
+    }).join('') + '</div>';
+  }
+  function renderProgress() {
+    const hints = { student: '学びを、積み重ねる。', researcher: '噂を、自分で確かめる。', connector: '人に会い、話を聞く。', dividend: '配当が、積み重なる頃に。', profit: '利益を、手元に残す。', story: '誰かとの約束を、最後まで。' };
+    const earned = E.ACHIEVEMENTS.filter(a => s.achievements.includes(a.id));
+    $('progress').innerHTML = '<div class="box"><div class="eyebrow">MY JOURNEY</div><h2>' + E.CAREERS[s.career].name + ' Lv.' + (s.careerLevel + 1) + '</h2><div class="skill-grid"><div><strong>' + s.knowledge + '</strong><small>知識</small></div><div><strong>' + s.contacts + '</strong><small>人脈</small></div><div><strong>' + E.researchGain(s) + 'pt</strong><small>情報収集</small></div><div><strong>×' + E.dividendMultiplier(s).toFixed(2) + '</strong><small>配当倍率</small></div></div>' + '<small>人脈から毎月 ＋' + E.monthlyResearch(s) + 'pt</small>' + '</div><div class="box section"><h2>見つけた強み <small>' + earned.length + ' / ' + E.ACHIEVEMENTS.length + '</small></h2>' + (earned.length ? earned.map(a => '<div class="achievement"><strong class="up">✦ ' + a.name + '</strong><p>' + a.reward + '</p></div>').join('') : '<p class="muted">続けたことが、いつか力になる。</p>') + '<details class="discovery-hints"><summary>成長の手がかり</summary>' + E.ACHIEVEMENTS.filter(a => !s.achievements.includes(a.id)).map(a => '<p class="muted">◇ ' + hints[a.id] + '</p>').join('') + '</details></div>';
+  }
+  function renderChart() {
+    const max = Math.max(...s.history.map(h => h.assets), data.config.initialCash) * 1.1;
+    const points = s.history.map(h => (20 + h.month / 24 * 300) + ',' + (130 - h.assets / max * 110)).join(' ');
+    $('chart').innerHTML = '<svg class="chart" viewBox="0 0 340 160" role="img" aria-label="月末総資産の推移"><line x1="20" y1="130" x2="320" y2="130" stroke="#52635d"/><polyline points="' + points + '" fill="none" stroke="#b5ef8a" stroke-width="3"/><text x="20" y="152">開始</text><text x="150" y="152">1年</text><text x="300" y="152">2年</text></svg><details><summary>月別の総資産</summary>' + s.history.map(h => '<p class="muted">' + (h.month ? date(h.month) : '開始時') + '：' + yen(h.assets) + '</p>').join('') + '</details>';
+  }
+  function newsHTML(items) { return items.map(n => '<article class="news-item"><small>' + esc(n.kind) + '</small><h3>' + esc(n.title) + '</h3>' + (n.rate === null ? '' : '<strong class="' + (n.rate >= 0 ? 'up' : 'down') + '">' + signed(n.rate) + '</strong>') + '<p>' + esc(n.text) + '</p><small>' + n.indices.map(i => esc(data.companies[i].name)).join(' / ') + '</small></article>').join(''); }
+  function settleWithScene() {
+    const before = structuredClone(s), total = E.assets(before);
+    if (!perform(() => E.settle(s, data), false)) return;
+    const prices = [...before.prices], scenes = [];
+    for (const n of s.news) {
+      const rows = [], loss = n.rate < 0, surprise = n.kind === '突発ニュース';
+      let impact = 0;
+      for (const i of n.indices) {
+        const old = prices[i]; prices[i] = Math.max(1, Math.round(old * (1 + n.rate / 100)));
+        rows.push([data.companies[i].name, yen(old) + ' → ' + yen(prices[i])]);
+        impact += (prices[i] - old) * before.qty[i];
+      }
+      if (n.indices.some(i => before.qty[i] > 0)) rows.push(['あなたの保有株への影響', (impact >= 0 ? '+' : '') + yen(impact)]);
+      scenes.push({ label: surprise ? '臨時ニュース' : date(before.month) + '・' + n.kind, mood: loss ? 'loss' : surprise || n.rate === null ? 'gold' : 'news', art: n.rate === null ? 'stars' : 'market', icon: n.rate === null ? '✦' : surprise ? '！' : loss ? '↘' : n.rate ? '↗' : '…', title: n.title, text: n.text, value: n.rate === null ? s.stats.dividends - before.stats.dividends : n.rate === 0 ? '動きなし' : signed(n.rate), rows, word: surprise ? 'BREAKING NEWS' : n.rate === null ? 'DIVIDEND' : loss ? 'MARKET DOWN' : 'MARKET REPORT' });
+    }
+    const extra = discoveries(before); scenes.push(...extra);
+    const after = E.assets(s), clear = s.result === 'clear', failed = s.result === 'failed';
+    const final = { label: date(before.month) + '・決算', mood: failed ? 'loss' : clear || s.rewardPending ? 'gold' : 'calm', art: 'city', icon: failed ? '◇' : clear ? '♛' : s.rewardPending ? '✦' : '◎', title: failed ? '目標未達。夢は、次の挑戦へ。' : clear ? '2年間をクリア。あの日の夢に、届いた。' : s.rewardPending ? '期限目標、突破！' : after > total ? '今月の一手が、実を結んだ。' : after < total ? 'こんな月もある。次の一手を考えよう。' : '次のチャンスを、待とう。', text: failed ? 'この挑戦はここまで。経験を、次の作戦に。' : clear ? E.CAREERS[s.career].name + 'を目指した、あなたの2年間。' : s.rewardPending ? '次の半年へ。新しい力をひとつ選ぼう。' : '市場が眠り、また新しい月が来る。', value: after, from: total, rows: [['今月の資産増減', (after >= total ? '+' : '') + yen(after - total)], ['配当', '+' + yen(s.stats.dividends - before.stats.dividends)]], word: failed ? 'NEXT TIME' : clear ? 'DREAM ACHIEVED' : 'YOUR BALANCE', close: failed || clear ? '記録を振り返る' : s.rewardPending ? '報酬を選ぶ →' : '次の月へ →' };
+    scenes.push(final);
+    const compact = { ...final, rows: [...final.rows, ...s.news.filter(n => n.rate !== null).map(n => [n.title, signed(n.rate)]), ...extra.map(v => [v.label, v.title + ' ' + v.text])] };
+    theatre.play(scenes, () => { $('summary').scrollIntoView({ behavior: 'smooth', block: 'start' }); }, compact);
+  }
+  document.addEventListener('click', event => {
+    const b = event.target.closest('button'); if (!b || b.disabled) return;
+    const d = b.dataset;
+    if (d.career && perform(() => E.start(s, data, d.career), false)) theatre.play([{ label: '新しい生活', art: 'city', icon: E.CAREERS[s.career].icon, title: 'この街で、' + E.CAREERS[s.career].name + 'を目指す。', text: '手元には100万円。毎月ふたつの選択と、月末の投資。まずは半年で200万円へ。', word: 'DAY ONE', close: 'はじめの一歩 →' }]);
+    if (d.action) actionWithScene(d.action);
+    if (d.inspect !== undefined) inspectWithScene(Number(d.inspect));
+    if (d.story) actionWithScene('story', d.story);
+    if (d.boost !== undefined && perform(() => E.boost(s, data, Number(d.boost)), false)) theatre.play([{ label: '発信', art: 'social', icon: '◉', title: 'あなたの声が、広がっていく。', text: E.planView(s,data,s.plans.find(p=>p.uid===Number(d.boost))).title, value: '実現確率 ＋' + (10 + s.careerLevel * 5) + 'ポイント', word: 'ON AIR' }]);
+    if (d.reward && perform(() => E.reward(s, d.reward), false)) theatre.play([{ label: '目標突破の贈り物', mood: 'gold', art: 'stars', icon: '✦', title: '次の半年が、楽しみになった。', text: d.reward === 'cash' ? '投資資金 ＋' + yen(300000 * s.goalsPassed.length) : d.reward === 'dividend' ? '配当倍率 ＋0.20' : '毎月の調査pt ＋2', word: 'A NEW CHAPTER' }]);
+    for (const mode of ['buy', 'sell', 'max', 'all']) if (d[mode] !== undefined) {
+      const i = Number(d[mode]), n = mode === 'max' ? Math.floor(s.cash / (s.prices[i] * 100)) * 100 : mode === 'all' ? s.qty[i] : Number($('qty' + i).value);
+      if (perform(() => E.trade(s, data, i, mode === 'buy' || mode === 'max', n))) { $('qty' + i).closest('.stock').classList.add('trade-pop'); theatre.tone(mode === 'buy' || mode === 'max' ? 'news' : 'calm'); }
+    }
+    if (d.settle !== undefined) {
+      settleWithScene();
+    }
+    if (d.restart !== undefined) $('restart').showModal();
+  });
+  $('save').onclick = () => { if (save()) toast('保存しました'); };
+  $('load').onclick = () => { try { if (load()) { render(); toast('保存した続きから再開しました'); } else toast('新しい挑戦から始めよう'); } catch (error) { toast(error.message); } };
+  $('reset').onclick = () => $('restart').showModal();
+  $('cancelRestart').onclick = () => $('restart').close();
+  $('confirmRestart').onclick = () => { s = E.createGame(data); save(); render(); $('restart').close(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  try { load(); } catch (error) { $('saveWarning').hidden = false; $('saveWarning').textContent = error.message + ' 新しく始めると今回の保存を置き換えます。'; }
+  render();
 }
