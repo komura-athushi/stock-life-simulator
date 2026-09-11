@@ -20,10 +20,10 @@
 <div id="outcome"></div>
 <section id="goals" class="section"></section>
 <section id="reward" class="banner" hidden></section>
-<nav class="tabs" aria-label="ゲーム内の移動"><a href="#actions">行動</a><a href="#information">情報</a><a href="#market">月末売買</a><a href="#progress">成長・実績</a></nav>
+<nav class="tabs" aria-label="ゲーム内の移動"><a href="#actions">行動</a><a href="#information">情報</a><a href="#market">株の売買</a><a href="#progress">職業Lv</a></nav>
 <div class="game-layout"><div>
 <section id="actions" class="section"></section>
-<section id="stories" class="section"></section>
+
 <section id="information" class="section"></section>
 <section id="market" class="section"></section>
 <section id="endTurn" class="banner"></section>
@@ -34,15 +34,19 @@
 <details class="box section"><summary>行動・取引の履歴</summary><ol id="log" class="log"></ol></details>
 </aside></div>
 </div>
-<details class="box help section"><summary>まずは、これだけ</summary>
-<p>毎月2回行動したら、月末に株を売買。100株単位・売買の行動コストは0。月を締めると、期日を迎えた予定の結果と配当が届きます。</p>
-<p>情報収集で調査ptを貯め、予定を「タグ → 値動き → 成功率」の順に調べよう。ptは翌月へ持ち越せます。成功すれば株価上昇、失敗すれば下落。</p>
-<p>あと1か月の予定は今月末に決着。連続イベントは次の段階へ進みます。</p>
-<p>期限の月末に総資産が目標未満なら終了。2年間、目標を越えて進みましょう。選択は自動保存されます。</p>
-</details>
+<details class="box help section"><summary>Help</summary>
+<p>職業ptを振り分け、自分らしい投資家生活を始めよう。毎月の行動と株の売買を組み合わせ、自分の得意を育てていこう。</p>
+<ul><li><strong>バイト：</strong>働いて投資の元手を得る。繰り返すとフリーターLvが上がり、収入が育つ。</li>
+<li><strong>情報収集：</strong>イベントの調査に使う調査ptを集める。</li>
+<li><strong>勉強：</strong>学びを重ねてトレーダーLvを育て、情報収集を得意にする。</li>
+<li><strong>SNS投稿：</strong>選んだイベントの発生確率を上げる。未調査のイベントも応援でき、重ねて投稿すると後押しが積み重なる。投稿を続けるとインフルエンサーLvが育つ。</li></ul>
+<p>配当を受け取ると資産家Lvが育つ。職業Lv欄で、次の成長までの道のりを確かめよう。</p>
+<p>調査ptでイベントのタグ、値動き、発生確率を順に読み解こう。調査ptは次の月にも持ち越せる。</p>
+<p>株はいつでも売買できる。好きなタイミングで「月を締める」と、イベントの結果と配当が届く。連続イベントは次の段階へ進む。</p>
+<p>半年ごとの資産目標を越え、夢のゴールへ。選択は自動保存される。</p></details>
 <footer>架空の株とニュースで遊ぶゲームです。進行はこのブラウザ・このURLに自動保存されます。</footer>
 </main>
 <div id="notice" role="status" aria-live="polite"></div>
 <dialog id="report" class="cinema" aria-labelledby="reportTitle"><div class="cinema-top"><h2 id="reportTitle"></h2><span id="sceneCount"></span><button id="skipScene" class="small">結果へ</button></div><div class="cinema-meter"><i id="sceneMeter"></i></div><div id="reportBody" aria-live="polite"></div><div class="cinema-bottom"><small>あなたの、投資家生活。</small><button id="closeReport" class="primary">つづける →</button></div></dialog>
-<dialog id="restart" aria-labelledby="restartTitle"><h2 id="restartTitle">新しい挑戦を始めますか？</h2><p>今回の2年版の進行を消し、目指す職業の選択に戻ります。</p><div class="row"><button id="cancelRestart">戻る</button><button id="confirmRestart" class="primary">新しく始める</button></div></dialog>
+<dialog id="restart" aria-labelledby="restartTitle"><h2 id="restartTitle">新しい挑戦を始めますか？</h2><p>今回の2年版の進行を消し、職業ptの振り分けに戻ります。</p><div class="row"><button id="cancelRestart">戻る</button><button id="confirmRestart" class="primary">新しく始める</button></div></dialog>
 </body></html>

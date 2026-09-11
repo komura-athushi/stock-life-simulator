@@ -3,24 +3,21 @@
 // DOM-free rules shared by the browser and regression tests.
 (function (root) {
   const CAREERS = {
-    employee: { name: '会社員', icon: '▣', desc: '仕事で元手を作る。バイト収入が高く、仕事の実績でさらに成長。', growth: 'バイト3回 / 6回で昇格。1段階ごとにバイト収入＋8万円。' },
-    trader: { name: 'トレーダー', icon: '⌁', desc: '情報収集で得られる調査ptが多い。知識を磨き、情報から勝ち筋を見つける。', growth: '情報収集3回 / 6回で昇格。1段階ごとに獲得調査pt＋1。' },
-    influencer: { name: 'インフルエンサー', icon: '◉', desc: '交流すると追加で人脈が育つ。月末に好材料1件の実現確率を上げられる。', growth: '交流3回 / 6回で昇格。発信の効果が＋10 / 15 / 20ポイントに成長。' },
-    wealthy: { name: '資産家', icon: '✦', desc: '最初から配当1.2倍。元手を投資し、配当を次の投資へつなげる。', growth: '累計配当20万円 / 100万円で昇格。配当倍率が＋0.15ずつ成長。' }
+    employee: { name: 'フリーター', icon: '▣', metric: 'works', activity: 'バイト', unit: '回', thresholds: [2,5,9,14,20] },
+    wealthy: { name: '資産家', icon: '✦', metric: 'dividends', activity: '累計配当', unit: '円', thresholds: [100000,300000,700000,1400000,2500000] },
+    influencer: { name: 'インフルエンサー', icon: '◉', metric: 'posts', activity: 'SNS投稿', unit: '回', thresholds: [2,5,9,14,20] },
+    trader: { name: 'トレーダー', icon: '⌁', metric: 'studies', activity: '勉強', unit: '回', thresholds: [2,5,9,14,20] }
   };
-  const STORIES = [
-    { id: 'reporter', name: '駆け出し記者の独占取材', start: 1, end: 8, steps: ['記者に取材先を紹介する', '現地取材に同行する', '独占記事を一緒に完成させる'], reward: '15万円＋毎月の調査pt＋2', detail: '人脈のないところから、信頼できる情報源を育てる。' },
-    { id: 'mentor', name: '配当投資家の研究会', start: 5, end: 14, steps: ['研究会に参加する', '企業の配当方針を調べる', '共同研究を発表する'], reward: '25万円＋配当倍率＋0.15', detail: '長く持つ企業を見極めるための、小さな研究会。' },
-    { id: 'founder', name: '起業家の事業発表会', start: 11, end: 22, steps: ['事業計画に助言する', '協力企業を紹介する', '事業発表会を成功させる'], reward: '50万円＋ミライチップ100株', detail: '資金を出すだけではない関わり方で、企業を応援する。' }
-  ];
-  const ACHIEVEMENTS = [
-    { id: 'student', name: '学びを武器に', target: 3, metric: 'studies', reward: '研究助成15万円＋調査pt獲得量＋1' },
-    { id: 'researcher', name: '情報の目利き', target: 4, metric: 'investigations', reward: '調査pt獲得量＋1' },
-    { id: 'connector', name: '顔の広い投資家', target: 3, metric: 'networks', reward: '毎月の調査pt＋1' },
-    { id: 'dividend', name: 'お金が働き始める', target: 300000, metric: 'dividends', reward: '配当倍率＋0.15' },
-    { id: 'profit', name: '利益を次の種に', target: 500000, metric: 'realized', reward: '成功報酬20万円' },
-    { id: 'story', name: '最後までやり遂げる', target: 1, metric: 'stories', reward: 'すべてのバイト収入＋5万円' }
-  ];
+  const MAX_LEVEL = 5;
+  function careerProgress(s, id) {
+    const c = CAREERS[id], level = s.levels[id], initial = s.initialLevels[id];
+    const current = s.stats[c.metric], target = level < MAX_LEVEL ? c.thresholds[level - initial] : null;
+    return {level, current, target, remaining: target === null ? 0 : Math.max(0, target-current)};
+  }
+  function careerEffect(id, level) {
+    return id === 'employee' ? 'バイト収入 ' + (140000 + level * 40000).toLocaleString('ja-JP') + '円' : id === 'trader' ? '情報収集で獲得する調査pt ' + (3 + level) + 'pt' : id === 'influencer' ? 'SNS投稿の発生確率アップ ＋' + (10 + level * 2) + 'ポイント（上限95%）' : '職業による配当倍率 ×' + (1 + level * 0.12).toFixed(2);
+  }
+  function boostGain(s) { return Math.min(20, 10 + s.levels.influencer * 2); }
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 
   function validateData(data) {
@@ -28,22 +25,22 @@
     if (!data || data.config?.schemaVersion !== 3 || data.config.months !== 24 || data.config.actionsPerMonth !== 2 || data.config.planSlots !== 4 || !int(data.config.initialResearchPoints,0,100) || !Array.isArray(data.config.researchCosts) || data.config.researchCosts.length !== 3 || !data.config.researchCosts.every(n=>int(n,1,100))) throw Error('ゲーム設定の形式が違います。');
     if (!int(data.config.initialCash,1,1e9)) throw Error('初期資金が不正です。');
     if (!Array.isArray(data.companies) || data.companies.length !== 6 || data.companies.some(c => typeof c.name !== 'string' || !Array.isArray(c.tags) || !c.tags.every(t => typeof t === 'string') || !int(c.price,1,1e7) || !Number.isFinite(c.yieldPct) || c.yieldPct < 0 || c.yieldPct > 20)) throw Error('銘柄データが不正です。');
-    if (!Array.isArray(data.events) || data.events.length < 4 || data.events.some((e,i)=>e.id!==i || typeof e.title!=='string' || !Array.isArray(e.tags) || !e.tags.length || !e.tags.every(t=>data.companies.some(c=>c.tags.includes(t))) || !Array.isArray(e.stages) || e.stages.length<1 || e.stages.length>5 || e.stages.some(v=>!['title','text','success','failure'].every(k=>typeof v[k]==='string') || !int(v.duration,1,6) || !int(v.rate,1,1000) || !int(v.failureRate,-99,-1) || !int(v.prob,30,90)))) throw Error('予定データが不正です。');
-    if (!data.events.some(e=>e.stages.length>1) || !data.events.some(e=>e.stages.length===1 && e.stages[0].duration===1)) throw Error('連続イベントと1か月の単発予定が必要です。');
+    if (!Array.isArray(data.events) || data.events.length < 4 || data.events.some((e,i)=>e.id!==i || typeof e.title!=='string' || !Array.isArray(e.tags) || !e.tags.length || !e.tags.every(t=>data.companies.some(c=>c.tags.includes(t))) || !Array.isArray(e.stages) || e.stages.length<1 || e.stages.length>5 || e.stages.some(v=>!['title','text','success','failure'].every(k=>typeof v[k]==='string') || !int(v.duration,1,6) || !int(v.rate,1,1000) || !int(v.failureRate,-99,-1) || !int(v.prob,30,90)))) throw Error('イベントデータが不正です。');
+    if (!data.events.some(e=>e.stages.length>1) || !data.events.some(e=>e.stages.length===1 && e.stages[0].duration===1)) throw Error('連続イベントと1か月の単発イベントが必要です。');
     if (!Array.isArray(data.config.goals) || data.config.goals.length !== 4 || data.config.goals.some((g,i)=>g.month!==(i+1)*6 || !int(g.amount,1,1e12) || typeof g.title!=='string')) throw Error('目標データが不正です。');
     return data;
   }
   function createGame(data, seed = Date.now()) {
     validateData(data);
     return {
-      version: 3, signature: JSON.stringify(data), rng: (Number(seed) >>> 0) || 1,
-      career: null, month: 1, actions: 0, phase: 'start', cash: data.config.initialCash,
+      version: 4, signature: JSON.stringify(data), rng: (Number(seed) >>> 0) || 1,
+      career: null, initialLevels: Object.fromEntries(Object.keys(CAREERS).map(id => [id, 0])), careerPoints: 2,
+      month: 1, actions: 0, phase: 'start', cash: data.config.initialCash,
       prices: data.companies.map(c => c.price), qty: data.companies.map(() => 0), cost: data.companies.map(() => 0), yields: data.companies.map(c => c.yieldPct),
-      knowledge: 0, contacts: 0, careerLevel: 0, dividendBonus: 0, workBonus: 0, researchIncome: 0, researchPoints: data.config.initialResearchPoints,
-      stats: { works: 0, studies: 0, researches: 0, investigations: 0, networks: 0, stories: 0, dividends: 0, realized: 0, earned: 0, actions: 0 },
-      plans: [], nextPlanId: 1, boosted: null, gig: false,
-      stories: Object.fromEntries(STORIES.map(t => [t.id, { step: 0, expired: false }])),
-      achievements: [], goalsPassed: [], rewardPending: false, result: null,
+      levels: Object.fromEntries(Object.keys(CAREERS).map(id => [id, 0])), dividendBonus: 0, researchIncome: 0, researchPoints: data.config.initialResearchPoints,
+      stats: { works: 0, studies: 0, researches: 0, investigations: 0, posts: 0, dividends: 0, realized: 0, earned: 0, actions: 0 },
+      plans: [], nextPlanId: 1,
+      goalsPassed: [], rewardPending: false, result: null,
       history: [{ month: 0, assets: data.config.initialCash, prices: data.companies.map(c => c.price) }], news: [], log: []
     };
   }
@@ -54,11 +51,11 @@
   function pick(s, items) { return items[Math.floor(random(s) * items.length)]; }
   function record(s, message) { s.log.unshift({ month: s.month, message }); s.log = s.log.slice(0, 300); }
   function assets(s) { return Math.round(s.cash + s.prices.reduce((sum, p, i) => sum + p * s.qty[i], 0)); }
-  function researchGain(s) { return 3 + Math.floor(s.knowledge/2) + (s.career==='trader'?1+s.careerLevel:0) + (s.achievements.includes('student')?1:0) + (s.achievements.includes('researcher')?1:0); }
-  function monthlyResearch(s) { return s.researchIncome + Math.floor(s.contacts/3); }
+  function researchGain(s) { return 3 + s.levels.trader; }
+  function monthlyResearch(s) { return s.researchIncome; }
   function researchCost(s,data,plan) { return plan.level<3 ? data.config.researchCosts[plan.level] : 0; }
   function eventStage(data,plan) { return data.events[plan.eventId].stages[plan.stage]; }
-  function probability(s,plan,data) { return clamp(eventStage(data,plan).prob+plan.momentum+plan.boost,30,99); }
+  function probability(s,plan,data) { return clamp(clamp(eventStage(data,plan).prob+plan.momentum,30,95)+plan.boost,30,95); }
   function remaining(s,plan) { return plan.dueMonth-s.month+1; }
   // Only this projection is handed to the event-card renderer.
   function planView(s,data,plan) {
@@ -68,9 +65,9 @@
     if(plan.level>=3)view.probability=probability(s,plan,data);
     return view;
   }
-  function dividendMultiplier(s) { return 1 + s.dividendBonus + (s.career === 'wealthy' ? 0.2 + s.careerLevel * 0.15 : 0); }
+  function dividendMultiplier(s) { return 1 + s.dividendBonus + s.levels.wealthy * 0.12; }
   function dividend(s) { return s.prices.reduce((sum, price, i) => sum + Math.floor(price * s.qty[i] * s.yields[i] / 100 * dividendMultiplier(s)), 0); }
-  function workPay(s, gig = false) { return (gig ? 320000 : 180000) + s.workBonus + (s.career === 'employee' ? 60000 + s.careerLevel * 80000 : 0) + (gig ? s.contacts * 20000 : 0); }
+  function workPay(s) { return 140000 + s.levels.employee * 40000; }
   function targets(data, e) { return data.companies.map((c, i) => c.tags.some(t => e.tags.includes(t)) ? i : -1).filter(i => i >= 0); }
   function changePrice(s, indices, rate) { indices.forEach(i => { s.prices[i] = Math.max(1, Math.round(s.prices[i] * (1 + rate / 100))); }); }
   function makePlan(s,data,eventId,month,stage=0,previous=null) {
@@ -82,72 +79,66 @@
       let pool=data.events.filter(e=>!s.plans.some(p=>p.eventId===e.id));
       if(initial && s.plans.length===0) pool=pool.filter(e=>e.stages.length===1 && e.stages[0].duration===1);
       if(initial && s.plans.length===1) pool=pool.filter(e=>e.stages.length>1);
-      if(!pool.length)throw Error('追加できる予定が不足しています。');
+      if(!pool.length)throw Error('追加できるイベントが不足しています。');
       s.plans.push(makePlan(s,data,pick(s,pool).id,s.month));
     }
   }
   function prepareMonth(s,data,initial=false) {
-    s.actions=0; s.phase='action'; s.boosted=null; s.gig=random(s)<0.35;
+    s.actions=0; s.phase='action';
     fillPlans(s,data,initial);
-    if(!initial && monthlyResearch(s)>0){s.researchPoints+=monthlyResearch(s);record(s,'人脈から調査pt＋'+monthlyResearch(s));}
-    for(const t of STORIES) if(s.month>t.end && s.stories[t.id].step<3 && !s.stories[t.id].expired){s.stories[t.id].expired=true;if(s.stories[t.id].step)record(s,'期限終了：'+t.name+'。あの約束は過ぎてしまった。');}
+    if(!initial && monthlyResearch(s)>0){s.researchPoints+=monthlyResearch(s);record(s,'情報網から調査pt＋'+monthlyResearch(s));}
   }
-  function start(s, data, career) {
-    if (s.phase !== 'start' || !Object.hasOwn(CAREERS, career)) throw Error('目指す職業を選んでください。');
-    s.career = career; prepareMonth(s, data, true); record(s, CAREERS[career].name + 'を目指してスタート。');
+  function validAllocation(levels) {
+    return levels && typeof levels === 'object' && !Array.isArray(levels) &&
+      Object.keys(levels).every(id => Object.hasOwn(CAREERS,id)) &&
+      Object.values(levels).every(n => Number.isInteger(n) && n >= 0 && n <= 2) &&
+      Object.values(levels).reduce((a,b) => a+b,0) <= 2;
+  }
+  function allocateCareer(s, id, delta) {
+    if(s.phase !== 'start' || !Object.hasOwn(CAREERS,id) || ![-1,1].includes(delta)) throw Error('スタート前に職業ptを振り分けよう。');
+    if(s.careerPoints < delta || s.initialLevels[id] + delta < 0) throw Error('職業ptの振り分けを調整しよう。');
+    s.initialLevels[id] += delta; s.levels[id] += delta; s.careerPoints -= delta;
+  }
+  function start(s, data, allocation = s.initialLevels) {
+    if (s.phase !== 'start' || !validAllocation(allocation)) throw Error('職業ptを振り分けて、自分らしい一歩を。');
+    s.initialLevels = Object.fromEntries(Object.keys(CAREERS).map(id => [id, allocation[id] || 0]));
+    s.levels = {...s.initialLevels}; s.careerPoints = 2 - Object.values(s.initialLevels).reduce((a,b)=>a+b,0);
+    prepareMonth(s, data, true); record(s, '自分らしい投資家生活がスタート。');
   }
   function checkProgress(s) {
-    for (const a of ACHIEVEMENTS) {
-      if (s.achievements.includes(a.id) || s.stats[a.metric] < a.target) continue;
-      s.achievements.push(a.id);
-      if (a.id === 'student') { s.cash += 150000; s.stats.earned += 150000; }
-      if (a.id === 'connector') s.researchIncome++;
-      if (a.id === 'dividend') s.dividendBonus += 0.15;
-      if (a.id === 'profit') { s.cash += 200000; s.stats.earned += 200000; }
-      if (a.id === 'story') s.workBonus += 50000;
-      record(s, '実績達成「' + a.name + '」：' + a.reward + '（自動獲得）');
+    for (const id of Object.keys(CAREERS)) {
+      let p = careerProgress(s, id);
+      while (p.target !== null && p.current >= p.target) {
+        s.levels[id]++;
+        record(s, CAREERS[id].activity + ' ' + p.target.toLocaleString('ja-JP') + CAREERS[id].unit + '達成！ ' + CAREERS[id].name + ' Lv.' + s.levels[id] + '：' + careerEffect(id, s.levels[id]));
+        p = careerProgress(s, id);
+      }
     }
-    const n = s.career === 'employee' ? s.stats.works : s.career === 'trader' ? s.stats.researches : s.career === 'influencer' ? s.stats.networks : s.stats.dividends;
-    const thresholds = s.career === 'wealthy' ? [200000, 1000000] : [3, 6];
-    const level = thresholds.filter(t => n >= t).length;
-    if (level > s.careerLevel) { s.careerLevel = level; record(s, '職業成長！ ' + CAREERS[s.career].name + ' Lv.' + (level + 1)); }
   }
   function act(s, data, action, target) {
-    if (s.phase !== 'action' || s.rewardPending || s.actions >= 2) throw Error('今は行動できません。');
-    if (action === 'work' || action === 'gig') {
-      if (action === 'gig' && !s.gig) throw Error('今月の特別案件はありません。');
-      const pay = workPay(s, action === 'gig'); s.cash += pay; s.stats.earned += pay; s.stats.works++;
-      if (action === 'gig') s.gig = false;
-      record(s, (action === 'gig' ? '特別案件' : 'バイト') + '：＋' + pay.toLocaleString('ja-JP') + '円');
+    if (s.phase !== 'action' || s.rewardPending || s.actions >= 2) throw Error('次の月の行動を楽しみに。');
+    if (action === 'work') {
+      const pay = workPay(s); s.cash += pay; s.stats.earned += pay; s.stats.works++;
+      record(s, 'バイト：＋' + pay.toLocaleString('ja-JP') + '円');
     } else if (action === 'study') {
-      if (s.knowledge >= 6) throw Error('知識は最大です。');
-      s.knowledge++; s.stats.studies++; record(s, '勉強：知識が ' + s.knowledge + ' に成長。');
-    } else if (action === 'network') {
-      if (s.contacts >= 9) throw Error('人脈は最大です。');
-      s.contacts = Math.min(9, s.contacts + (s.career === 'influencer' ? 2 : 1)); s.stats.networks++;
-      record(s, '交流：人脈が ' + s.contacts + ' に成長。');
+      s.stats.studies++; record(s, '勉強：学びの積み重ね ' + s.stats.studies + '回');
     } else if (action === 'research') {
-      const points=researchGain(s); s.researchPoints+=points; s.stats.researches++;
-      record(s,'情報収集：調査pt＋'+points);
-    } else if (action === 'story') {
-      const t = STORIES.find(t => t.id === target), progress = s.stories[target];
-      if (!t || s.month < t.start || s.month > t.end || progress.step >= 3) throw Error('このイベントは進められません。');
-      record(s, t.name + '：' + t.steps[progress.step]); progress.step++;
-      if (progress.step === 3) {
-        s.stats.stories++;
-        const pay = target === 'reporter' ? 150000 : target === 'mentor' ? 250000 : 500000;
-        s.cash += pay; s.stats.earned += pay;
-        if (target === 'reporter') s.researchIncome+=2;
-        if (target === 'mentor') s.dividendBonus += 0.15;
-        if (target === 'founder') s.qty[0] += 100;
-        record(s, '連続イベント完走！ ' + t.reward);
-      }
-    } else throw Error('不明な行動です。');
+      const points = researchGain(s); s.researchPoints += points; s.stats.researches++;
+      record(s, '情報収集：調査pt＋' + points);
+    } else if (action === 'post') {
+      const p = s.plans.find(p => p.uid === target);
+      if (!p) throw Error('応援するイベントを選ぼう。');
+      const before = probability(s,p,data);
+      if (before >= 95) throw Error('応援は最高潮！ 別のイベントへ声を届けよう。');
+      const gain = Math.min(boostGain(s), 95 - before);
+      p.boost += gain; s.stats.posts++;
+      record(s, 'SNS投稿：イベント #' + p.uid + ' の発生確率＋' + gain + 'ポイント');
+    } else throw Error('行動を選ぼう。');
     s.actions++; s.stats.actions++; checkProgress(s);
-    if (s.actions === 2) { s.phase = 'trade'; record(s, '月末の売買が可能になりました。取引後に月を締めてください。'); }
+    if (s.actions === 2) { s.phase = 'trade'; record(s, '今月の行動完了。投資を整えて、次の月へ。'); }
   }
   function trade(s, data, index, buy, quantity) {
-    if (s.phase !== 'trade' || s.rewardPending) throw Error('売買は2回行動した後の月末だけ可能です。');
+    if (!['action','trade'].includes(s.phase) || s.rewardPending) throw Error('新しい月の市場で取引しよう。');
     if (!Number.isInteger(index) || index < 0 || index >= data.companies.length || !Number.isSafeInteger(quantity) || quantity < 100 || quantity % 100 !== 0) throw Error('株数は100株単位で指定してください。');
     const amount = s.prices[index] * quantity;
     if (!Number.isSafeInteger(amount)) throw Error('取引額が大きすぎます。');
@@ -166,19 +157,15 @@
   function inspect(s,data,uid) {
     if(!['action','trade'].includes(s.phase)||s.rewardPending)throw Error('行動期間か月末に調査できます。');
     const p=s.plans.find(p=>p.uid===uid);
-    if(!p || p.level>=3)throw Error('調査する予定を選んでください。');
+    if(!p || p.level>=3)throw Error('調査するイベントを選んでください。');
     const cost=researchCost(s,data,p);if(s.researchPoints<cost)throw Error('調査ptが足りません。情報収集で貯めましょう。');
     s.researchPoints-=cost;p.level++;s.stats.investigations++;
-    record(s,'予定の調査：'+['','タグ','値動き','成功率'][p.level]+'を確認（'+cost+'pt）');
+    record(s,'イベントの調査：'+['','タグ','値動き','成功率'][p.level]+'を確認（'+cost+'pt）');
     checkProgress(s);
   }
-  function boost(s,data,uid) {
-    const p=s.plans.find(p=>p.uid===uid);
-    if(s.phase!=='trade'||s.career!=='influencer'||s.boosted!==null||!p||p.level<1||p.boost)throw Error('月末に、タグが判明した未発信の予定を選んでください。');
-    p.boost=10+s.careerLevel*5;s.boosted=uid;record(s,'発信：「'+eventStage(data,p).title+'」を応援。');
-  }
+  function boost(s,data,uid) { act(s,data,'post',uid); }
   function settle(s, data) {
-    if (s.phase !== 'trade' || s.rewardPending) throw Error('2回行動してから月を締めてください。');
+    if (!['action','trade'].includes(s.phase) || s.rewardPending) throw Error('目標報酬を選んで、次の一歩へ。');
     s.news = [];
     const waiting=[];
     for(const p of s.plans){
@@ -198,11 +185,11 @@
         text+=' 計画完遂。配当利回り＋1ポイント。';
         if(p.held>=2){const bonus=Math.floor(indices.reduce((n,i)=>n+s.prices[i]*s.qty[i],0)*0.04);if(bonus){s.cash+=bonus;s.stats.earned+=bonus;text+=' 保有ボーナス＋'+bonus.toLocaleString('ja-JP')+'円。';}}
       }
-      s.news.push({title:v.title,text,rate,indices,kind:(chain?'連続イベント '+(p.stage+1)+'/'+e.stages.length:'予定')+'・'+(ok?'成功':'失敗')});
+      s.news.push({title:v.title,text,rate,indices,kind:(chain?'連続イベント '+(p.stage+1)+'/'+e.stages.length:'イベント')+'・'+(ok?'成功':'失敗')});
     }
     s.plans=waiting;
     const payout = dividend(s); s.cash += payout; s.stats.dividends += payout;
-    s.news.push({ title: '今月の配当', text: 'イベント後の株価で計算。＋' + payout.toLocaleString('ja-JP') + '円。次の月末に再投資できます。', rate: null, indices: [], kind: '入金' });
+    s.news.push({ title: '今月の配当', text: 'イベント後の株価で計算。＋' + payout.toLocaleString('ja-JP') + '円。次の月の投資に役立てよう。', rate: null, indices: [], kind: '入金' });
     checkProgress(s);
     s.history.push({ month: s.month, assets: assets(s), prices: [...s.prices] });
     for (const n of s.news) record(s, n.kind + '：' + n.title + (n.rate === null ? '' : ' ' + (n.rate > 0 ? '+' : '') + n.rate + '%'));
@@ -236,17 +223,29 @@
     const num=(n,min=0)=>Number.isFinite(n)&&n>=min;
     const array=(xs,count,test)=>Array.isArray(xs)&&xs.length===count&&xs.every(test);
     const fail=()=>{throw Error('保存データの形式が違うか、破損しています。');};
-    if(!s||s.version!==3||!compatibleSignature(s.signature,data)||!int(s.rng,1,4294967295)||!int(s.month,1,24)||!int(s.actions,0,2)||!['start','action','trade','ended'].includes(s.phase)||!(s.career===null||Object.hasOwn(CAREERS,s.career))||!num(s.cash)||!array(s.prices,6,n=>int(n,1))||!array(s.qty,6,n=>int(n)&&n%100===0)||!array(s.cost,6,n=>num(n))||!array(s.yields,6,n=>num(n)&&n<=20))fail();
-    if(!int(s.knowledge,0,6)||!int(s.contacts,0,9)||!int(s.careerLevel,0,2)||!num(s.dividendBonus)||!int(s.workBonus)||!int(s.researchIncome)||!int(s.researchPoints)||!int(s.nextPlanId,1)||typeof s.gig!=='boolean'||typeof s.rewardPending!=='boolean'||!(s.boosted===null||int(s.boosted,1,s.nextPlanId-1)))fail();
-    if(!s.stats||!['works','studies','researches','investigations','networks','stories','dividends','earned','actions'].every(k=>int(s.stats[k]))||!num(s.stats.realized,-Number.MAX_VALUE)||s.stats.actions!==(s.month-1)*2+s.actions)fail();
-    if(!Array.isArray(s.plans)||s.plans.length>4||new Set(s.plans.map(p=>p.uid)).size!==s.plans.length||new Set(s.plans.map(p=>p.eventId)).size!==s.plans.length||s.plans.some(p=>!int(p.uid,1,s.nextPlanId-1)||!int(p.eventId,0,data.events.length-1)||!int(p.stage,0,data.events[p.eventId].stages.length-1)||!int(p.dueMonth,s.month,s.month+6)||!int(p.level,0,3)||!int(p.momentum,-25,25)||!int(p.held,0,p.stage)||![0,10,15,20].includes(p.boost)))fail();
+    // Preserve existing v4 games from the single-career starting screen.
+    if(s && !Object.hasOwn(s,'initialLevels') && !Object.hasOwn(s,'careerPoints')) {
+      if(!(s.career===null||Object.hasOwn(CAREERS,s.career)))fail();
+      s.initialLevels=Object.fromEntries(Object.keys(CAREERS).map(id=>[id,s.career===id?2:0]));
+      s.careerPoints=s.career===null?2:0;
+    }
+    if(!s||s.version!==4||!compatibleSignature(s.signature,data)||!int(s.rng,1,4294967295)||!int(s.month,1,24)||!int(s.actions,0,2)||!['start','action','trade','ended'].includes(s.phase)||!(s.career===null||Object.hasOwn(CAREERS,s.career))||!num(s.cash)||!array(s.prices,6,n=>int(n,1))||!array(s.qty,6,n=>int(n)&&n%100===0)||!array(s.cost,6,n=>num(n))||!array(s.yields,6,n=>num(n)&&n<=20))fail();
+    if(!s.levels||!Object.keys(CAREERS).every(id=>int(s.levels[id],0,MAX_LEVEL))||!num(s.dividendBonus)||!int(s.researchIncome)||!int(s.researchPoints)||!int(s.nextPlanId,1)||typeof s.rewardPending!=='boolean')fail();
+    if(!s.stats||!['works','studies','researches','investigations','posts','dividends','earned','actions'].every(k=>int(s.stats[k]))||!num(s.stats.realized,-Number.MAX_VALUE)||(s.stats.actions<s.actions||s.stats.actions>(s.month-1)*2+s.actions))fail();
+    if(!Array.isArray(s.plans)||s.plans.length>4||new Set(s.plans.map(p=>p.uid)).size!==s.plans.length||new Set(s.plans.map(p=>p.eventId)).size!==s.plans.length||s.plans.some(p=>!int(p.uid,1,s.nextPlanId-1)||!int(p.eventId,0,data.events.length-1)||!int(p.stage,0,data.events[p.eventId].stages.length-1)||!int(p.dueMonth,s.month,s.month+6)||!int(p.level,0,3)||!int(p.momentum,-25,25)||!int(p.held,0,p.stage)||!int(p.boost,0,90)))fail();
     if(s.phase!=='start'&&s.phase!=='ended'&&s.plans.length!==4||s.phase==='start'&&s.plans.length!==0)fail();
-    if(!Array.isArray(s.achievements)||new Set(s.achievements).size!==s.achievements.length||!s.achievements.every(id=>ACHIEVEMENTS.some(a=>a.id===id))||!Array.isArray(s.goalsPassed)||!s.goalsPassed.every((m,i)=>m===(i+1)*6&&m<=s.month)||!s.stories||!STORIES.every(t=>int(s.stories[t.id]?.step,0,3)&&typeof s.stories[t.id].expired==='boolean'))fail();
+    if(!Array.isArray(s.goalsPassed)||!s.goalsPassed.every((m,i)=>m===(i+1)*6&&m<=s.month))fail();
     if(!array(s.history,s.phase==='ended'?s.month+1:s.month,(h)=>h&&int(h.month,0,24)&&num(h.assets)&&array(h.prices,6,n=>int(n,1)))||!s.history.every((h,i)=>h.month===i)||!Array.isArray(s.log)||s.log.length>300||s.log.some(l=>!int(l.month,1,24)||typeof l.message!=='string')||!Array.isArray(s.news)||s.news.length>5||s.news.some(n=>!['title','text','kind'].every(k=>typeof n[k]==='string')||!(n.rate===null||Number.isFinite(n.rate))||!Array.isArray(n.indices)||!n.indices.every(i=>int(i,0,5))))fail();
-    if(s.phase==='start'&&(s.career!==null||s.month!==1||s.actions!==0)||s.phase!=='start'&&s.career===null||s.phase==='action'&&s.actions>=2||['trade','ended'].includes(s.phase)&&s.actions!==2||s.phase==='ended'&&(!['failed','clear'].includes(s.result)||!data.config.goals.some(g=>g.month===s.month))||s.phase!=='ended'&&s.result!==null||s.rewardPending&&(s.phase!=='action'||s.actions!==0||![7,13,19].includes(s.month)))fail();
+    if(s.phase==='start'&&(s.career!==null||s.month!==1||s.actions!==0)||s.phase==='action'&&s.actions>=2||s.phase==='trade'&&s.actions!==2||s.phase==='ended'&&(!['failed','clear'].includes(s.result)||!data.config.goals.some(g=>g.month===s.month))||s.phase!=='ended'&&s.result!==null||s.rewardPending&&(s.phase!=='action'||s.actions!==0||![7,13,19].includes(s.month)))fail();
+    if(!validAllocation(s.initialLevels)||Object.keys(s.initialLevels).length!==Object.keys(CAREERS).length||!int(s.careerPoints,0,2)||s.careerPoints+Object.values(s.initialLevels).reduce((a,b)=>a+b,0)!==2)fail();
+    for(const id of Object.keys(CAREERS)) {
+      const initial=s.initialLevels[id];
+      const expected=Math.min(MAX_LEVEL,initial+CAREERS[id].thresholds.filter(t=>s.stats[CAREERS[id].metric]>=t).length);
+      if(s.levels[id]!==expected)fail();
+    }
     s.signature=JSON.stringify(data);
     return JSON.parse(JSON.stringify(s));
   }
-  const API={CAREERS,STORIES,ACHIEVEMENTS,validateData,createGame,start,act,inspect,trade,boost,settle,reward,restore,assets,researchGain,monthlyResearch,researchCost,eventStage,remaining,planView,dividend,dividendMultiplier,workPay,probability,targets};
+  const API={MAX_LEVEL,allocateCareer,careerProgress,careerEffect,boostGain,CAREERS,validateData,createGame,start,act,inspect,trade,boost,settle,reward,restore,assets,researchGain,monthlyResearch,researchCost,eventStage,remaining,planView,dividend,dividendMultiplier,workPay,probability,targets};
   if(typeof module!=='undefined'&&module.exports)module.exports=API;else root.KabuEngine=API;
 })(typeof globalThis!=='undefined'?globalThis:this);
