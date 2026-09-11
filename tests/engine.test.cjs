@@ -4,28 +4,59 @@ const fs=require('node:fs'),path=require('node:path');
 const E=require('../site/engine.js');
 const data=Object.fromEntries(['companies','events','config'].map(n=>[n,JSON.parse(fs.readFileSync(path.join(__dirname,'../site/data',n+'.json'),'utf8').replace(/^\uFEFF/,''))]));
 function fixture(){const d=structuredClone(data);d.config.goals.forEach(g=>g.amount=1);return d;}
-function start(d=data,career='trader',seed=4321){const s=E.createGame(d,seed);E.start(s,d,career);return s;}
+function start(d=data,career='trader',seed=4321){const s=E.createGame(d,seed);E.start(s,d,{[career]:2});return s;}
 function actions(s,d=data){E.act(s,d,'work');E.act(s,d,'work');}
 function month(s,d=data){if(s.rewardPending)E.reward(s,'cash');actions(s,d);E.settle(s,d);}
 function single(s,d,eventId,due=s.month){s.plans=[{uid:s.nextPlanId++,eventId,stage:0,dueMonth:due,level:0,momentum:0,held:0,boost:0}];return s.plans[0];}
+
+test('starting points support every allocation, optional spending and independent growth',()=>{
+ const d=fixture(),ids=Object.keys(E.CAREERS);
+ for(let a=0;a<=2;a++)for(let b=0;b<=2-a;b++)for(let c=0;c<=2-a-b;c++)for(let f=0;f<=2-a-b-c;f++){
+  const initial=Object.fromEntries(ids.map((id,i)=>[id,[a,b,c,f][i]])),s=E.createGame(d,42);
+  E.start(s,d,initial);assert.deepEqual(s.levels,initial);assert.equal(s.careerPoints,2-a-b-c-f);
+  E.act(s,d,'study');E.act(s,d,'study');assert.equal(s.levels.trader,initial.trader+1);
+  E.settle(s,d);assert.deepEqual(E.restore(JSON.stringify(s),d),s);
+ }
+});
+
+test('allocation can be undone, saved before starting and locks on start',()=>{
+ const s=E.createGame(data,4);E.allocateCareer(s,'trader',1);E.allocateCareer(s,'wealthy',1);
+ const full=JSON.stringify(s);assert.throws(()=>E.allocateCareer(s,'employee',1));assert.equal(JSON.stringify(s),full);
+ E.allocateCareer(s,'wealthy',-1);assert.equal(s.careerPoints,1);assert.equal(s.levels.wealthy,0);
+ assert.deepEqual(E.restore(JSON.stringify(s),data),s);
+ E.start(s,data);assert.equal(s.levels.trader,1);assert.equal(s.careerPoints,1);
+ const active=JSON.stringify(s);assert.throws(()=>E.allocateCareer(s,'employee',1));assert.throws(()=>E.start(s,data));assert.equal(JSON.stringify(s),active);
+ for(const bad of [{trader:3},{trader:2,wealthy:1},{trader:-1},{trader:0.5},{unknown:1},[],null]){
+  const fresh=E.createGame(data,4),before=JSON.stringify(fresh);assert.throws(()=>E.start(fresh,data,bad));assert.equal(JSON.stringify(fresh),before);
+ }
+});
+
+test('previous single-career saves retain progress and initial growth offsets',()=>{
+ const s=start(data,'trader');E.act(s,data,'study');E.act(s,data,'study');
+ s.career='trader';const legacy=structuredClone(s);delete legacy.initialLevels;delete legacy.careerPoints;
+ assert.deepEqual(E.restore(JSON.stringify(legacy),data),s);
+ const bad=structuredClone(s);bad.initialLevels.wealthy=2;assert.throws(()=>E.restore(JSON.stringify(bad),data));
+});
 
 test('data contains only positive opportunities with negative failure outcomes, durations and chains',()=>{
  E.validateData(data);assert(data.events.some(e=>e.stages.length>1));assert(data.events.some(e=>e.stages[0].duration===1));
  assert(data.events.every(e=>e.stages.every(v=>v.rate>0&&v.failureRate<0&&v.duration>=1)));
  const d=structuredClone(data);d.events[0].stages[0].failureRate=0;assert.throws(()=>E.validateData(d));
 });
-test('two actions per month; only month-end trading; research spending uses points',()=>{
- const s=start();assert.throws(()=>E.trade(s,data,0,true,100));assert.throws(()=>E.settle(s,data));
- E.inspect(s,data,s.plans[0].uid);assert.equal(s.actions,0);assert.equal(s.researchPoints,2);
- E.act(s,data,'research');assert.equal(s.actions,1);assert.throws(()=>E.trade(s,data,0,true,100));
- E.act(s,data,'study');assert.equal(s.phase,'trade');assert.throws(()=>E.act(s,data,'work'));
- const cash=s.cash;E.trade(s,data,0,true,100);E.trade(s,data,0,false,100);assert.equal(s.cash,cash);assert.equal(s.actions,2);
- E.settle(s,data);assert.equal(s.month,2);assert.equal(s.actions,0);assert.throws(()=>E.trade(s,data,0,true,100));
+test('trading is available before, between and after actions; settlement may skip actions',()=>{
+ for(const count of [0,1,2]){
+  const d=fixture(),s=start(d);E.trade(s,d,0,true,100);
+  for(let i=0;i<count;i++)E.act(s,d,'research');
+  E.trade(s,d,0,false,100);assert.equal(s.actions,count);
+  if(count===2)assert.throws(()=>E.act(s,d,'work'));
+  E.settle(s,d);assert.equal(s.month,2);assert.equal(s.stats.actions,count);
+  assert.deepEqual(E.restore(JSON.stringify(s),d),s);E.trade(s,d,0,true,100);
+ }
 });
 test('a hidden opportunity exposes only its timing and investigation controls',()=>{
  const s=start();const view=E.planView(s,data,s.plans[1]);
  assert.deepEqual(Object.keys(view).sort(),['cost','level','remaining','uid']);
- s.knowledge=6;s.contacts=9;s.researchIncome=100;s.careerLevel=2;
+ s.researchIncome=100;
  assert.deepEqual(Object.keys(E.planView(s,data,s.plans[1])).sort(),['cost','level','remaining','uid']);
 });
 test('points unlock tags, then upside/downside, then success rate independently of knowledge',()=>{
@@ -86,32 +117,75 @@ test('final chain success awards yield and held bonus; failed final stage awards
   assert.equal(s.yields[company],oldYield+(success?1:0));assert.equal(s.news[0].text.includes('保有ボーナス'),success);assert(!s.plans.some(x=>x.uid===p.uid));
  }
 });
-test('influencer boost persists until a future due date and affects only that plan',()=>{
- const d=fixture(),s=start(d,'influencer'),p=s.plans[0];p.dueMonth=3;E.inspect(s,d,p.uid);actions(s,d);
- const base=E.probability(s,p,d);E.boost(s,d,p.uid);assert.equal(E.probability(s,p,d),Math.min(99,base+10));assert.equal(p.boost,10);
- assert.throws(()=>E.boost(s,d,p.uid));E.settle(s,d);assert.equal(s.plans.find(x=>x.uid===p.uid).boost,10);assert.equal(s.boosted,null);
- actions(s,d);assert.throws(()=>E.boost(s,d,p.uid));assert.equal(E.restore(JSON.stringify(s),d).plans.find(x=>x.uid===p.uid).boost,10);
+test('all careers can repeatedly post on an unresearched event; bonuses persist and cap at 95',()=>{
+ for(const career of Object.keys(E.CAREERS)){
+  const d=fixture(),s=start(d,career),p=s.plans[0];p.dueMonth=3;d.events[p.eventId].stages[0].prob=30;
+  const gain=E.boostGain(s);E.act(s,d,'post',p.uid);E.act(s,d,'post',p.uid);
+  assert.equal(p.boost,gain*2);assert.equal(p.level,0);assert.equal(s.stats.posts,2);
+  E.settle(s,d);assert.equal(s.plans.find(x=>x.uid===p.uid).boost,gain*2);
+  assert.deepEqual(E.restore(JSON.stringify(s),d),{...s,signature:JSON.stringify(d)});
+ }
+ const d=fixture(),s=start(d),p=s.plans[0];d.events[p.eventId].stages[0].prob=90;
+ E.act(s,d,'post',p.uid);assert.equal(E.probability(s,p,d),95);assert.equal(p.boost,5);
+ const before=JSON.stringify(s);assert.throws(()=>E.act(s,d,'post',p.uid));assert.equal(JSON.stringify(s),before);
+ const low=start(d),q=low.plans[1];d.events[q.eventId].stages[0].prob=30;q.momentum=-25;
+ E.act(low,d,'post',q.uid);assert.equal(E.probability(low,q,d),40);
 });
 test('study improves point income but never reveals data; points carry into next month',()=>{
  const d=fixture(),s=start(d);const old=E.researchGain(s);E.act(s,d,'study');E.act(s,d,'study');assert.equal(E.researchGain(s),old+1);
  assert(s.plans.every(p=>p.level===0));const pts=s.researchPoints;E.settle(s,d);assert.equal(s.researchPoints,pts);assert(s.plans.every(p=>p.level===0));
  E.act(s,d,'research');assert.equal(s.researchPoints,pts+E.researchGain(s));
 });
-test('contacts, reporter and milestone reward supply points instead of revealing plans',()=>{
- const d=fixture(),s=start(d);E.act(s,d,'story','reporter');E.act(s,d,'story','reporter');E.settle(s,d);E.act(s,d,'story','reporter');
- assert.equal(s.researchIncome,2);s.contacts=3;E.act(s,d,'work');const pts=s.researchPoints;E.settle(s,d);assert.equal(s.researchPoints,pts+3);assert(s.plans.every(p=>p.level===0));
- while(s.month<=6)month(s,d);assert(s.rewardPending);const before=s.researchPoints;E.reward(s,'network');assert.equal(s.researchPoints,before+2);assert.equal(s.researchIncome,4);assert(s.plans.every(p=>p.level===0));assert.throws(()=>E.reward(s,'network'));
+test('milestone information reward supplies points each month',()=>{
+ const d=fixture(),s=start(d);while(s.month<=6)E.settle(s,d);
+ const before=s.researchPoints;E.reward(s,'network');assert.equal(s.researchPoints,before+2);
+ E.settle(s,d);assert.equal(s.researchPoints,before+4);assert(s.plans.every(p=>p.level===0));
+ assert.throws(()=>E.act(s,d,'network'));assert.throws(()=>E.act(s,d,'story','reporter'));assert.throws(()=>E.act(s,d,'gig'));
 });
-test('inspection achievement and career growth grant their bonuses once',()=>{
- const d=fixture(),s=start(d);s.researchPoints=50;for(const p of s.plans)E.inspect(s,d,p.uid);
- assert(s.achievements.includes('researcher'));assert.equal(s.achievements.filter(a=>a==='researcher').length,1);
- const gain=E.researchGain(s);E.inspect(s,d,s.plans[0].uid);assert.equal(E.researchGain(s),gain);
- E.act(s,d,'research');E.act(s,d,'research');E.settle(s,d);E.act(s,d,'research');assert.equal(s.careerLevel,1);
+test('chosen career starts at 2, others at 0; every career grows independently through level 5',()=>{
+ for(const chosen of Object.keys(E.CAREERS)){
+  const d=fixture(),s=start(d,chosen);
+  for(const id of Object.keys(E.CAREERS))assert.equal(s.levels[id],id===chosen?2:0);
+  for(const [id,c] of Object.entries(E.CAREERS)){
+   let p=E.careerProgress(s,id);
+   while(p.target!==null){
+    s.stats[c.metric]=p.target-1;
+    E.trade(s,d,0,true,100);E.trade(s,d,0,false,100);assert.equal(s.levels[id],p.level);
+    s.stats[c.metric]++;E.trade(s,d,0,true,100);E.trade(s,d,0,false,100);
+    assert.equal(s.levels[id],p.level+1);p=E.careerProgress(s,id);
+   }
+  }
+  assert.equal(E.boostGain(s),20);assert.equal(E.researchGain(s),8);assert.equal(E.workPay(s),340000);assert.equal(E.dividendMultiplier(s),1.6);
+  assert.deepEqual(E.restore(JSON.stringify(s),d),s);
+ }
 });
 test('24 months and 48 actions; saved states restore at every transition',()=>{
  const d=fixture(),s=start(d,'employee');
  for(let m=1;m<=24;m++){if(s.rewardPending)E.reward(s,'cash');actions(s,d);E.settle(s,d);assert.deepEqual(E.restore(JSON.stringify(s),d),s);}
  assert.equal(s.stats.actions,48);assert.equal(s.history.length,25);assert.equal(s.result,'clear');assert.deepEqual(s.goalsPassed,[6,12,18,24]);assert.throws(()=>E.settle(s,d));
+});
+
+test('skipped and partial months restore through the final result and failed deadline',()=>{
+ for(const count of [0,1]){
+  const d=fixture(),s=start(d);
+  for(let m=1;m<=24;m++){
+   if(s.rewardPending)E.reward(s,'cash');
+   if(count)E.act(s,d,'work');
+   E.settle(s,d);assert.deepEqual(E.restore(JSON.stringify(s),d),s);
+  }
+  assert.equal(s.result,'clear');assert.equal(s.stats.actions,count*24);
+  const losing=start(data);for(let m=1;m<=6;m++)E.settle(losing,data);
+  assert.equal(losing.result,'failed');assert.deepEqual(E.restore(JSON.stringify(losing),data),losing);
+ }
+});
+
+test('actual dividend payments grow an unselected wealthy career after the payout',()=>{
+ const d=fixture(),s=start(d,'trader');E.trade(s,d,2,true,1000);
+ s.plans.forEach(p=>p.dueMonth=3);
+ const payout=E.dividend(s);E.settle(s,d);
+ assert.equal(s.stats.dividends,payout);assert.equal(s.levels.wealthy,1);
+ assert.equal(E.dividendMultiplier(s),1.12);assert(E.dividend(s)>payout);
+ assert.deepEqual(E.restore(JSON.stringify(s),d),s);
 });
 test('each deadline fails immediately below target and blocks gameplay',()=>{
  for(const deadline of [6,12,18,24]){const d=fixture();d.config.goals.find(g=>g.month===deadline).amount=1e9;const s=start(d);while(s.month<=deadline&&s.phase!=='ended')month(s,d);assert.equal(s.month,deadline);assert.equal(s.result,'failed');assert.throws(()=>E.act(s,d,'work'));assert.throws(()=>E.inspect(s,d,s.plans[0]?.uid));assert.throws(()=>E.trade(s,d,0,true,100));}
@@ -136,10 +210,10 @@ test('invalid trades leave balances untouched',()=>{
  const s=start();actions(s);const old=JSON.stringify(s);for(const q of [0,-100,99,100.5,NaN,Infinity,1e12])assert.throws(()=>E.trade(s,data,0,true,q));assert.throws(()=>E.trade(s,data,0,false,100));assert.equal(JSON.stringify(s),old);
 });
 
-test('base probabilities span 30–90 and all modifiers clamp to 30–99',()=>{
+test('base probabilities span 30–90 and all modifiers clamp to 30–95',()=>{
  const all=data.events.flatMap(e=>e.stages.map(v=>v.prob));assert.equal(Math.min(...all),30);assert.equal(Math.max(...all),90);
  const d=fixture(),s=start(d),p=s.plans[0];p.level=3;d.events[p.eventId].stages[p.stage].prob=90;p.momentum=25;p.boost=20;
- assert.equal(E.probability(s,p,d),99);assert.equal(E.planView(s,d,p).probability,99);
+ assert.equal(E.probability(s,p,d),95);assert.equal(E.planView(s,d,p).probability,95);
  d.events[p.eventId].stages[p.stage].prob=30;p.momentum=-25;p.boost=0;assert.equal(E.probability(s,p,d),30);
  for(const prob of [29,91]){const bad=fixture();bad.events[0].stages[0].prob=prob;assert.throws(()=>E.validateData(bad));}
 });
