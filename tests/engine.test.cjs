@@ -6,8 +6,45 @@ const data=Object.fromEntries(['companies','events','config'].map(n=>[n,JSON.par
 function fixture(){const d=structuredClone(data);d.config.goals.forEach(g=>g.amount=1);return d;}
 function start(d=data,career='trader',seed=4321){const s=E.createGame(d,seed);E.start(s,d,{[career]:2});return s;}
 function actions(s,d=data){E.act(s,d,'work');E.act(s,d,'work');}
-function month(s,d=data){if(s.rewardPending)E.reward(s,'cash');actions(s,d);E.settle(s,d);}
+function month(s,d=data){if(s.rewardPending)E.reward(s,'dividend');actions(s,d);E.settle(s,d);}
 function single(s,d,eventId,due=s.month){s.plans=[{uid:s.nextPlanId++,eventId,stage:0,dueMonth:due,level:0,momentum:0,held:0,boost:0}];return s.plans[0];}
+
+test('200 full games schedule unique tags per month and introduce more speculation later',()=>{
+ const counts={early:[0,0],late:[0,0]};
+ for(let seed=1;seed<=200;seed++){
+  const s=start(data,'trader',seed*7919),seen=new Set();
+  while(s.phase!=='ended'){
+   for(const p of s.plans){
+    for(const q of s.plans)if(p.uid!==q.uid&&p.dueMonth===q.dueMonth)assert(!data.events[p.eventId].tags.some(t=>data.events[q.eventId].tags.includes(t)));
+    if(!seen.has(p.uid)&&p.stage===0){seen.add(p.uid);const bin=s.month<=6?counts.early:s.month>=19?counts.late:null;if(bin){bin[1]++;if(E.eventStage(data,p).prob<70)bin[0]++;}}
+   }
+   if(s.rewardPending)E.reward(s,'dividend');
+   E.settle(s,data);assert.deepEqual(E.restore(JSON.stringify(s),data),s);
+  }
+ }
+ assert(counts.early[0]/counts.early[1]<0.15);
+ assert(counts.late[0]/counts.late[1]>0.3);
+});
+
+test('legacy tag collisions defer the second event without losing investigation or SNS posts',()=>{
+ const s=start(),p=single(s,data,0),q={...p,uid:s.nextPlanId++,eventId:1,boost:20,level:3};s.plans.push(q);
+ s.rng=1;E.settle(s,data);
+ assert.equal(s.news.filter(n=>n.rate!==null).length,1);
+ const deferred=s.plans.find(p=>p.uid===q.uid);assert(deferred);assert.equal(deferred.boost,20);assert.equal(deferred.level,3);assert(deferred.dueMonth>=s.month);
+});
+
+test('only two goal bonuses exist, including the last goal; claiming twice is blocked',()=>{
+ const d=fixture(),s=start(d);while(s.phase!=='ended'){if(s.rewardPending)E.reward(s,'dividend');E.settle(s,d);}
+ assert.equal(s.dividendBonus,0.3);assert(s.rewardPending);assert.throws(()=>E.reward(s,'cash'));
+ E.reward(s,'dividend');assert.equal(s.dividendBonus,0.4);assert.throws(()=>E.reward(s,'network'));assert.deepEqual(E.restore(JSON.stringify(s),d),s);
+});
+
+test('previous saves ended by a missed deadline resume in the following month',()=>{
+ const s=start();while(s.month<6)E.settle(s,data);E.settle(s,data);
+ s.month=6;s.phase='ended';s.result='failed';s.plans=[];
+ const loaded=E.restore(JSON.stringify(s),data);assert.equal(loaded.month,7);assert.equal(loaded.result,null);assert.equal(loaded.phase,'action');assert.equal(loaded.plans.length,4);
+ assert.deepEqual(E.restore(JSON.stringify(loaded),data),loaded);
+});
 
 test('starting points support every allocation, optional spending and independent growth',()=>{
  const d=fixture(),ids=Object.keys(E.CAREERS);
@@ -129,7 +166,7 @@ test('all careers can repeatedly post on an unresearched event; bonuses persist 
  E.act(s,d,'post',p.uid);assert.equal(E.probability(s,p,d),95);assert.equal(p.boost,5);
  const before=JSON.stringify(s);assert.throws(()=>E.act(s,d,'post',p.uid));assert.equal(JSON.stringify(s),before);
  const low=start(d),q=low.plans[1];d.events[q.eventId].stages[0].prob=30;q.momentum=-25;
- E.act(low,d,'post',q.uid);assert.equal(E.probability(low,q,d),40);
+ E.act(low,d,'post',q.uid);assert.equal(E.probability(low,q,d),30);
 });
 test('study improves point income but never reveals data; points carry into next month',()=>{
  const d=fixture(),s=start(d);const old=E.researchGain(s);E.act(s,d,'study');E.act(s,d,'study');assert.equal(E.researchGain(s),old+1);
@@ -161,7 +198,7 @@ test('chosen career starts at 2, others at 0; every career grows independently t
 });
 test('24 months and 48 actions; saved states restore at every transition',()=>{
  const d=fixture(),s=start(d,'employee');
- for(let m=1;m<=24;m++){if(s.rewardPending)E.reward(s,'cash');actions(s,d);E.settle(s,d);assert.deepEqual(E.restore(JSON.stringify(s),d),s);}
+ for(let m=1;m<=24;m++){if(s.rewardPending)E.reward(s,'dividend');actions(s,d);E.settle(s,d);assert.deepEqual(E.restore(JSON.stringify(s),d),s);}
  assert.equal(s.stats.actions,48);assert.equal(s.history.length,25);assert.equal(s.result,'clear');assert.deepEqual(s.goalsPassed,[6,12,18,24]);assert.throws(()=>E.settle(s,d));
 });
 
@@ -169,13 +206,13 @@ test('skipped and partial months restore through the final result and failed dea
  for(const count of [0,1]){
   const d=fixture(),s=start(d);
   for(let m=1;m<=24;m++){
-   if(s.rewardPending)E.reward(s,'cash');
+   if(s.rewardPending)E.reward(s,'dividend');
    if(count)E.act(s,d,'work');
    E.settle(s,d);assert.deepEqual(E.restore(JSON.stringify(s),d),s);
   }
   assert.equal(s.result,'clear');assert.equal(s.stats.actions,count*24);
   const losing=start(data);for(let m=1;m<=6;m++)E.settle(losing,data);
-  assert.equal(losing.result,'failed');assert.deepEqual(E.restore(JSON.stringify(losing),data),losing);
+  assert.equal(losing.result,null);assert.equal(losing.month,7);assert.equal(losing.rewardPending,false);assert.deepEqual(E.restore(JSON.stringify(losing),data),losing);
  }
 });
 
@@ -187,8 +224,8 @@ test('actual dividend payments grow an unselected wealthy career after the payou
  assert.equal(E.dividendMultiplier(s),1.12);assert(E.dividend(s)>payout);
  assert.deepEqual(E.restore(JSON.stringify(s),d),s);
 });
-test('each deadline fails immediately below target and blocks gameplay',()=>{
- for(const deadline of [6,12,18,24]){const d=fixture();d.config.goals.find(g=>g.month===deadline).amount=1e9;const s=start(d);while(s.month<=deadline&&s.phase!=='ended')month(s,d);assert.equal(s.month,deadline);assert.equal(s.result,'failed');assert.throws(()=>E.act(s,d,'work'));assert.throws(()=>E.inspect(s,d,s.plans[0]?.uid));assert.throws(()=>E.trade(s,d,0,true,100));}
+test('missed goals keep gameplay available and later goals can still earn rewards',()=>{
+ for(const deadline of [6,12,18,24]){const d=fixture();d.config.goals.find(g=>g.month===deadline).amount=1e12;const s=start(d);while(s.month<=deadline&&s.phase!=='ended')month(s,d);assert.equal(s.month,deadline===24?24:deadline+1);assert.equal(s.result,deadline===24?'clear':null);assert.equal(s.rewardPending,false);assert(!s.goalsPassed.includes(deadline));assert.deepEqual(E.restore(JSON.stringify(s),d),s);while(s.phase!=='ended')month(s,d);assert.deepEqual(E.restore(JSON.stringify(s),d),s);}
 });
 test('goal threshold is inclusive after payouts, salary stays action-based',()=>{
  const d=fixture(),s=start(d);for(let m=1;m<6;m++)month(s,d);actions(s,d);d.config.goals[0].amount=E.assets(s);E.settle(s,d);assert(s.rewardPending);
@@ -210,12 +247,12 @@ test('invalid trades leave balances untouched',()=>{
  const s=start();actions(s);const old=JSON.stringify(s);for(const q of [0,-100,99,100.5,NaN,Infinity,1e12])assert.throws(()=>E.trade(s,data,0,true,q));assert.throws(()=>E.trade(s,data,0,false,100));assert.equal(JSON.stringify(s),old);
 });
 
-test('base probabilities span 30–90 and all modifiers clamp to 30–95',()=>{
- const all=data.events.flatMap(e=>e.stages.map(v=>v.prob));assert.equal(Math.min(...all),30);assert.equal(Math.max(...all),90);
+test('base probabilities span 20–90 and all modifiers clamp to 20–95',()=>{
+ const all=data.events.flatMap(e=>e.stages.map(v=>v.prob));assert.equal(Math.min(...all),20);assert.equal(Math.max(...all),90);
  const d=fixture(),s=start(d),p=s.plans[0];p.level=3;d.events[p.eventId].stages[p.stage].prob=90;p.momentum=25;p.boost=20;
  assert.equal(E.probability(s,p,d),95);assert.equal(E.planView(s,d,p).probability,95);
- d.events[p.eventId].stages[p.stage].prob=30;p.momentum=-25;p.boost=0;assert.equal(E.probability(s,p,d),30);
- for(const prob of [29,91]){const bad=fixture();bad.events[0].stages[0].prob=prob;assert.throws(()=>E.validateData(bad));}
+ d.events[p.eventId].stages[p.stage].prob=30;p.momentum=-25;p.boost=0;assert.equal(E.probability(s,p,d),20);
+ for(const prob of [19,91]){const bad=fixture();bad.events[0].stages[0].prob=prob;assert.throws(()=>E.validateData(bad));}
 });
 test('event balance updates preserve progress while structural data changes reject the save',()=>{
  const old=structuredClone(data);old.events[0].stages[0].prob=85;old.events[0].stages[0].rate=22;old.events[0].stages[0].failureRate=-13;
@@ -230,8 +267,8 @@ test('lower base success odds offer higher upside while downside varies independ
  const stages=data.events.flatMap(e=>e.stages);
  for(const a of stages)for(const b of stages)if(a.prob<b.prob)assert(a.rate>b.rate,'Lower odds must offer higher upside');
  const high=stages.filter(v=>v.prob>=80),low=stages.filter(v=>v.prob<=40);
- assert(high.every(v=>v.rate<=20&&v.failureRate<=-25));
- assert(low.some(v=>v.failureRate>=-20));assert(low.some(v=>v.failureRate<=-50));
+ assert(high.every(v=>v.rate<=30&&v.failureRate>=-20));
+ assert(low.every(v=>v.failureRate>=-95&&v.failureRate<=-80));
  const s=start(),p=s.plans[0];p.level=3;const before=E.planView(s,data,p);p.boost=20;const after=E.planView(s,data,p);
  assert.equal(after.rate,before.rate);assert.equal(after.failureRate,before.failureRate);assert(after.probability>=before.probability);
 });
