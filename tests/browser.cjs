@@ -56,8 +56,8 @@ const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://loc
   await page.locator('[data-buy="2"]').click();await page.locator('[data-settle]').click();
   assert(!(await page.locator('#reportBody').innerText()).includes('今月の資産増減'));
   await finish();assert((await page.locator('#summary').innerText()).includes('1年目 2月'));
-  const after=await saved(),next=after.plans.find(p=>p.eventId===chain.eventId);assert(next);assert.equal(next.stage,1);assert.equal(next.level,1);assert.equal(next.dueMonth,3);
-  const nextSelector='[data-plan="'+next.uid+'"]';assert((await page.locator(nextSelector).innerText()).includes('あと2か月'));assert((await page.locator(nextSelector).innerText()).includes('2 / 3段階目'));assert.equal(await page.locator(nextSelector+' .plan-rates').count(),0);
+  const after=await saved(),next=after.plans.find(p=>p.eventId===chain.eventId);assert(next);assert.equal(next.stage,1);assert.equal(next.level,1);assert(next.dueMonth>=3);
+  const nextSelector='[data-plan="'+next.uid+'"]';assert((await page.locator(nextSelector).innerText()).includes('あと'+E.remaining(after,next)+'か月'));assert((await page.locator(nextSelector).innerText()).includes('2 / 3段階目'));assert.equal(await page.locator(nextSelector+' .plan-rates').count(),0);
   await page.setViewportSize({width:390,height:844});await page.locator('#information').scrollIntoViewIfNeeded();
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'mobile horizontal overflow');
   await page.screenshot({path:path.join(output,'kabu-research-mobile.png')});
@@ -67,14 +67,14 @@ const server=http.createServer((req,res)=>{const url=new URL(req.url,'http://loc
   for(let i=0;i<2;i++){await page.locator('[data-action="work"]').click();await finish();}await page.locator('[data-settle]').click();await finish();
   assert((await page.locator('[data-plan="'+uid+'"]').innerText()).includes('あと2か月'));
   await page.reload();assert.equal((await saved()).plans.find(p=>p.uid===uid).level,1);
-  // Failed deadline, successful reward selection, and clear retain their original rules.
+  // Missed goals continue; the only rewards are dividends and research income.
   const losing=E.createGame(data,42);E.start(losing,data,{trader:2});
   for(let m=1;m<=6;m++){E.act(losing,data,'work');E.act(losing,data,'work');if(m<6)E.settle(losing,data);}losing.cash=1;
-  await inject(losing);await page.locator('[data-settle]').click();await page.locator('#skipScene').click();assert((await page.locator('#reportBody').innerText()).includes('目標未達'));await finish();assert(await page.locator('[data-settle]').isDisabled());
+  await inject(losing);await page.locator('[data-settle]').click();await page.locator('#skipScene').click();assert((await page.locator('#reportBody').innerText()).includes('挑戦は続く'));await finish();assert.equal((await saved()).month,7);assert.equal((await saved()).rewardPending,false);assert(await page.locator('[data-settle]').isEnabled());
   const winning=E.createGame(data,43);E.start(winning,data,{wealthy:2});winning.cash=1e9;
   for(let m=1;m<=6;m++){E.act(winning,data,'work');E.act(winning,data,'work');E.settle(winning,data);}
-  await inject(winning);assert(await page.locator('#reward').isVisible());await page.locator('[data-reward="network"]').click();await finish();assert.equal((await saved()).researchIncome,2);assert((await saved()).plans.every(p=>p.level===0));
-  E.reward(winning,'cash');for(let m=7;m<=24;m++){if(winning.rewardPending)E.reward(winning,'cash');E.act(winning,data,'work');E.act(winning,data,'work');E.settle(winning,data);}await inject(winning);assert((await page.locator('#outcome').innerText()).includes('クリア'));assert(await page.locator('[data-buy="0"]').isDisabled());
+  await inject(winning);assert(await page.locator('#reward').isVisible());assert.equal(await page.locator('[data-reward]').count(),2);assert((await page.locator('[data-reward=dividend]').innerText()).includes('0.10'));await page.locator('[data-reward="network"]').click();await finish();assert.equal((await saved()).researchIncome,2);assert((await saved()).plans.every(p=>p.level===0));
+  E.reward(winning,'dividend');for(let m=7;m<=24;m++){if(winning.rewardPending)E.reward(winning,'dividend');E.act(winning,data,'work');E.act(winning,data,'work');E.settle(winning,data);}await inject(winning);assert((await page.locator('#outcome').innerText()).includes('クリア'));assert(await page.locator('[data-buy="0"]').isDisabled());
   await page.locator('#reset').click();await page.locator('#cancelRestart').click();assert((await page.locator('#outcome').innerText()).includes('クリア'));
   await page.locator('#reset').click();await page.locator('#confirmRestart').click();await page.locator('[data-allocate="influencer"][data-delta="1"]').click();await page.locator('[data-allocate="influencer"][data-delta="1"]').click();await page.locator('[data-start]').click();await finish();
   await page.locator('#pace').click();await page.locator('[data-action="research"]').click();assert((await page.locator('#sceneCount').innerText()).includes('1 / 1'));await finish();await page.reload();assert((await page.locator('#pace').innerText()).includes('短め'));

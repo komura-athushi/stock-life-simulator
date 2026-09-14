@@ -25,7 +25,7 @@
     if (!data || data.config?.schemaVersion !== 3 || data.config.months !== 24 || data.config.actionsPerMonth !== 2 || data.config.planSlots !== 4 || !int(data.config.initialResearchPoints,0,100) || !Array.isArray(data.config.researchCosts) || data.config.researchCosts.length !== 3 || !data.config.researchCosts.every(n=>int(n,1,100))) throw Error('ゲーム設定の形式が違います。');
     if (!int(data.config.initialCash,1,1e9)) throw Error('初期資金が不正です。');
     if (!Array.isArray(data.companies) || data.companies.length !== 6 || data.companies.some(c => typeof c.name !== 'string' || !Array.isArray(c.tags) || !c.tags.every(t => typeof t === 'string') || !int(c.price,1,1e7) || !Number.isFinite(c.yieldPct) || c.yieldPct < 0 || c.yieldPct > 20)) throw Error('銘柄データが不正です。');
-    if (!Array.isArray(data.events) || data.events.length < 4 || data.events.some((e,i)=>e.id!==i || typeof e.title!=='string' || !Array.isArray(e.tags) || !e.tags.length || !e.tags.every(t=>data.companies.some(c=>c.tags.includes(t))) || !Array.isArray(e.stages) || e.stages.length<1 || e.stages.length>5 || e.stages.some(v=>!['title','text','success','failure'].every(k=>typeof v[k]==='string') || !int(v.duration,1,6) || !int(v.rate,1,1000) || !int(v.failureRate,-99,-1) || !int(v.prob,30,90)))) throw Error('イベントデータが不正です。');
+    if (!Array.isArray(data.events) || data.events.length < 4 || data.events.some((e,i)=>e.id!==i || typeof e.title!=='string' || !Array.isArray(e.tags) || !e.tags.length || !e.tags.every(t=>data.companies.some(c=>c.tags.includes(t))) || !Array.isArray(e.stages) || e.stages.length<1 || e.stages.length>5 || e.stages.some(v=>!['title','text','success','failure'].every(k=>typeof v[k]==='string') || !int(v.duration,1,6) || !int(v.rate,1,1000) || !int(v.failureRate,-99,-1) || !int(v.prob,20,90)))) throw Error('イベントデータが不正です。');
     if (!data.events.some(e=>e.stages.length>1) || !data.events.some(e=>e.stages.length===1 && e.stages[0].duration===1)) throw Error('連続イベントと1か月の単発イベントが必要です。');
     if (!Array.isArray(data.config.goals) || data.config.goals.length !== 4 || data.config.goals.some((g,i)=>g.month!==(i+1)*6 || !int(g.amount,1,1e12) || typeof g.title!=='string')) throw Error('目標データが不正です。');
     return data;
@@ -55,7 +55,7 @@
   function monthlyResearch(s) { return s.researchIncome; }
   function researchCost(s,data,plan) { return plan.level<3 ? data.config.researchCosts[plan.level] : 0; }
   function eventStage(data,plan) { return data.events[plan.eventId].stages[plan.stage]; }
-  function probability(s,plan,data) { return clamp(clamp(eventStage(data,plan).prob+plan.momentum,30,95)+plan.boost,30,95); }
+  function probability(s,plan,data) { return clamp(clamp(eventStage(data,plan).prob+plan.momentum,20,95)+plan.boost,20,95); }
   function remaining(s,plan) { return plan.dueMonth-s.month+1; }
   // Only this projection is handed to the event-card renderer.
   function planView(s,data,plan) {
@@ -74,13 +74,24 @@
     const v=data.events[eventId].stages[stage];
     return {uid:s.nextPlanId++,eventId,stage,dueMonth:month+v.duration-1,level:previous?.level>=1?1:0,momentum:previous?.momentum||0,held:previous?.held||0,boost:0};
   }
+  function schedulePlan(plan,plans,data) {
+    const tags=data.events[plan.eventId].tags;
+    while(plans.some(p=>p.dueMonth===plan.dueMonth && data.events[p.eventId].tags.some(t=>tags.includes(t)))) plan.dueMonth++;
+    return plan;
+  }
+  function pickEvent(s,pool) {
+    // High-probability opportunities dominate early; speculative ones enter gradually.
+    const weight=e=>e.stages[0].prob>=70 ? 6 : s.month<=6 ? 0.25 : s.month<=12 ? 1 : s.month<=18 ? 3 : 5;
+    let roll=random(s)*pool.reduce((sum,e)=>sum+weight(e),0);
+    return pool.find(e=>(roll-=weight(e))<0)||pool.at(-1);
+  }
   function fillPlans(s,data,initial=false) {
     while(s.plans.length<data.config.planSlots){
       let pool=data.events.filter(e=>!s.plans.some(p=>p.eventId===e.id));
       if(initial && s.plans.length===0) pool=pool.filter(e=>e.stages.length===1 && e.stages[0].duration===1);
-      if(initial && s.plans.length===1) pool=pool.filter(e=>e.stages.length>1);
+      if(initial && s.plans.length===1) pool=pool.filter(e=>e.stages.length>1 && !s.plans.some(p=>p.dueMonth===s.month+e.stages[0].duration-1 && data.events[p.eventId].tags.some(t=>e.tags.includes(t))));
       if(!pool.length)throw Error('追加できるイベントが不足しています。');
-      s.plans.push(makePlan(s,data,pick(s,pool).id,s.month));
+      s.plans.push(schedulePlan(makePlan(s,data,pickEvent(s,pool).id,s.month),s.plans,data));
     }
   }
   function prepareMonth(s,data,initial=false) {
@@ -167,10 +178,13 @@
   function settle(s, data) {
     if (!['action','trade'].includes(s.phase) || s.rewardPending) throw Error('目標報酬を選んで、次の一歩へ。');
     s.news = [];
-    const waiting=[];
+    const waiting=[],resolvedTags=new Set();
     for(const p of s.plans){
       if(p.dueMonth>s.month){waiting.push(p);continue;}
       const e=data.events[p.eventId],v=eventStage(data,p),indices=targets(data,e);
+      // Older saves may already contain collisions. Keep their research and SNS boost.
+      if(e.tags.some(t=>resolvedTags.has(t))){p.dueMonth=s.month+1;waiting.push(schedulePlan(p,[...waiting,...s.plans.filter(q=>q!==p&&q.dueMonth>s.month)],data));continue;}
+      e.tags.forEach(t=>resolvedTags.add(t));
       const ok=random(s)*100<probability(s,p,data),rate=ok?v.rate:v.failureRate;
       changePrice(s,indices,rate);
       if(indices.some(i=>s.qty[i]>0))p.held++;
@@ -178,7 +192,7 @@
       const chain=e.stages.length>1,final=p.stage===e.stages.length-1;
       if(chain && !final){
         p.momentum=clamp(p.momentum+(ok?10:-10),-25,25);
-        waiting.push(makePlan(s,data,p.eventId,s.month+1,p.stage+1,p));
+        waiting.push(schedulePlan(makePlan(s,data,p.eventId,s.month+1,p.stage+1,p),[...waiting,...s.plans.filter(q=>q.dueMonth>s.month)],data));
         text+=' 次の段階へ続く。';
       }else if(chain && final && ok){
         indices.forEach(i=>s.yields[i]=Math.min(20,s.yields[i]+1));
@@ -195,16 +209,15 @@
     for (const n of s.news) record(s, n.kind + '：' + n.title + (n.rate === null ? '' : ' ' + (n.rate > 0 ? '+' : '') + n.rate + '%'));
     record(s, '配当入金：＋' + payout.toLocaleString('ja-JP') + '円');
     const goal = data.config.goals.find(g => g.month === s.month);
-    if (goal && assets(s) < goal.amount) { s.phase = 'ended'; s.result = 'failed'; record(s, '期限目標未達。今回の挑戦はここで終了。'); return; }
-    if (goal) { s.goalsPassed.push(goal.month); record(s, '期限目標達成！ ' + goal.title); }
+    const achieved=goal && assets(s)>=goal.amount;
+    if (goal && !achieved) record(s, '目標未達。ボーナスはありませんが、挑戦は続きます。');
+    if (achieved) { s.goalsPassed.push(goal.month); s.rewardPending=true; record(s, '目標達成！ ' + goal.title); }
     if (s.month === data.config.months) { s.phase = 'ended'; s.result = 'clear'; record(s, '2年間の挑戦をクリア！ 夢の職業へ。'); return; }
     s.month++; prepareMonth(s, data);
-    if (goal) s.rewardPending = true;
   }
   function reward(s, choice) {
-    if (!s.rewardPending || s.phase !== 'action' || !['cash', 'dividend', 'network'].includes(choice)) throw Error('目標報酬を選んでください。');
-    if (choice === 'cash') { const pay = 300000 * s.goalsPassed.length; s.cash += pay; s.stats.earned += pay; record(s, '目標報酬：投資資金＋' + pay.toLocaleString('ja-JP') + '円'); }
-    if (choice === 'dividend') { s.dividendBonus += 0.2; record(s, '目標報酬：配当倍率＋0.20'); }
+    if (!s.rewardPending || !['action','ended'].includes(s.phase) || !['dividend', 'network'].includes(choice)) throw Error('目標報酬を選んでください。');
+    if (choice === 'dividend') { s.dividendBonus = Math.round((s.dividendBonus+0.1)*100)/100; record(s, '目標報酬：配当倍率＋0.10'); }
     if (choice === 'network') { s.researchIncome+=2; s.researchPoints+=2; record(s, '目標報酬：毎月の調査pt＋2（今月から）'); }
     s.rewardPending = false;
   }
@@ -232,16 +245,20 @@
     if(!s||s.version!==4||!compatibleSignature(s.signature,data)||!int(s.rng,1,4294967295)||!int(s.month,1,24)||!int(s.actions,0,2)||!['start','action','trade','ended'].includes(s.phase)||!(s.career===null||Object.hasOwn(CAREERS,s.career))||!num(s.cash)||!array(s.prices,6,n=>int(n,1))||!array(s.qty,6,n=>int(n)&&n%100===0)||!array(s.cost,6,n=>num(n))||!array(s.yields,6,n=>num(n)&&n<=20))fail();
     if(!s.levels||!Object.keys(CAREERS).every(id=>int(s.levels[id],0,MAX_LEVEL))||!num(s.dividendBonus)||!int(s.researchIncome)||!int(s.researchPoints)||!int(s.nextPlanId,1)||typeof s.rewardPending!=='boolean')fail();
     if(!s.stats||!['works','studies','researches','investigations','posts','dividends','earned','actions'].every(k=>int(s.stats[k]))||!num(s.stats.realized,-Number.MAX_VALUE)||(s.stats.actions<s.actions||s.stats.actions>(s.month-1)*2+s.actions))fail();
-    if(!Array.isArray(s.plans)||s.plans.length>4||new Set(s.plans.map(p=>p.uid)).size!==s.plans.length||new Set(s.plans.map(p=>p.eventId)).size!==s.plans.length||s.plans.some(p=>!int(p.uid,1,s.nextPlanId-1)||!int(p.eventId,0,data.events.length-1)||!int(p.stage,0,data.events[p.eventId].stages.length-1)||!int(p.dueMonth,s.month,s.month+6)||!int(p.level,0,3)||!int(p.momentum,-25,25)||!int(p.held,0,p.stage)||!int(p.boost,0,90)))fail();
+    if(!Array.isArray(s.plans)||s.plans.length>4||new Set(s.plans.map(p=>p.uid)).size!==s.plans.length||new Set(s.plans.map(p=>p.eventId)).size!==s.plans.length||s.plans.some(p=>!int(p.uid,1,s.nextPlanId-1)||!int(p.eventId,0,data.events.length-1)||!int(p.stage,0,data.events[p.eventId].stages.length-1)||!int(p.dueMonth,s.month,s.month+24)||!int(p.level,0,3)||!int(p.momentum,-25,25)||!int(p.held,0,p.stage)||!int(p.boost,0,90)))fail();
     if(s.phase!=='start'&&s.phase!=='ended'&&s.plans.length!==4||s.phase==='start'&&s.plans.length!==0)fail();
-    if(!Array.isArray(s.goalsPassed)||!s.goalsPassed.every((m,i)=>m===(i+1)*6&&m<=s.month))fail();
+    if(!Array.isArray(s.goalsPassed)||!s.goalsPassed.every((m,i)=>[6,12,18,24].includes(m)&&m<=s.month&&(i===0||m>s.goalsPassed[i-1])))fail();
     if(!array(s.history,s.phase==='ended'?s.month+1:s.month,(h)=>h&&int(h.month,0,24)&&num(h.assets)&&array(h.prices,6,n=>int(n,1)))||!s.history.every((h,i)=>h.month===i)||!Array.isArray(s.log)||s.log.length>300||s.log.some(l=>!int(l.month,1,24)||typeof l.message!=='string')||!Array.isArray(s.news)||s.news.length>5||s.news.some(n=>!['title','text','kind'].every(k=>typeof n[k]==='string')||!(n.rate===null||Number.isFinite(n.rate))||!Array.isArray(n.indices)||!n.indices.every(i=>int(i,0,5))))fail();
-    if(s.phase==='start'&&(s.career!==null||s.month!==1||s.actions!==0)||s.phase==='action'&&s.actions>=2||s.phase==='trade'&&s.actions!==2||s.phase==='ended'&&(!['failed','clear'].includes(s.result)||!data.config.goals.some(g=>g.month===s.month))||s.phase!=='ended'&&s.result!==null||s.rewardPending&&(s.phase!=='action'||s.actions!==0||![7,13,19].includes(s.month)))fail();
+    if(s.phase==='start'&&(s.career!==null||s.month!==1||s.actions!==0)||s.phase==='action'&&s.actions>=2||s.phase==='trade'&&s.actions!==2||s.phase==='ended'&&(!['failed','clear'].includes(s.result)||!data.config.goals.some(g=>g.month===s.month))||s.phase!=='ended'&&s.result!==null||s.rewardPending&&!(s.phase==='action'&&s.actions===0&&[7,13,19].includes(s.month)&&s.goalsPassed.includes(s.month-1)||s.phase==='ended'&&s.month===24&&s.result==='clear'&&s.goalsPassed.includes(24)))fail();
     if(!validAllocation(s.initialLevels)||Object.keys(s.initialLevels).length!==Object.keys(CAREERS).length||!int(s.careerPoints,0,2)||s.careerPoints+Object.values(s.initialLevels).reduce((a,b)=>a+b,0)!==2)fail();
     for(const id of Object.keys(CAREERS)) {
       const initial=s.initialLevels[id];
       const expected=Math.min(MAX_LEVEL,initial+CAREERS[id].thresholds.filter(t=>s.stats[CAREERS[id].metric]>=t).length);
       if(s.levels[id]!==expected)fail();
+    }
+    if(s.phase==='ended'&&s.result==='failed') {
+      s.result=null;
+      if(s.month===24){s.result='clear';}else{s.month++;prepareMonth(s,data);}
     }
     s.signature=JSON.stringify(data);
     return JSON.parse(JSON.stringify(s));

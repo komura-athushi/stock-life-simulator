@@ -8,7 +8,7 @@ for(const career of Object.keys(E.CAREERS)){
   for(let seed=1;seed<=200;seed++){
     const s=E.createGame(data,seed*7919);E.start(s,data,{[career]:2});
     while(s.phase!=='ended'){
-      if(s.rewardPending)E.reward(s,'cash');
+      if(s.rewardPending)E.reward(s,'dividend');
       // Diversify cash across stocks, with a mix of earning, studying and research.
       E.act(s,data,s.month%4===1&&s.levels.trader<3?'study':'work');
       E.act(s,data,'research');
@@ -24,5 +24,5 @@ for(const career of Object.keys(E.CAREERS)){
     }
     results.push(s);
   }
-  console.log(E.CAREERS[career].name,JSON.stringify({runs:results.length,firstGoal:results.filter(s=>s.goalsPassed.includes(6)).length,clear:results.filter(s=>s.result==='clear').length,medianAssets:results.map(E.assets).sort((a,b)=>a-b)[100]}));
+  console.log(E.CAREERS[career].name,JSON.stringify({runs:results.length,firstGoal:results.filter(s=>s.goalsPassed.includes(6)).length,completed:results.filter(s=>s.result==='clear').length,finalGoal:results.filter(s=>s.goalsPassed.includes(24)).length,medianAssets:results.map(E.assets).sort((a,b)=>a-b)[100]}));
 }
